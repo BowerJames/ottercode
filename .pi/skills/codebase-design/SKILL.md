@@ -11,6 +11,10 @@ Design **deep modules**: a lot of behaviour behind a small interface, placed at 
 
 Use these terms exactly — don't substitute "component," "service," "API," or "boundary." Consistent language is the whole point.
 
+**Architecture** — the holistic view of interfaces and seams: which modules exist, what each promises, and how they compose. Deliberately implementation-agnostic. 
+
+_Avoid_: tech stack, infrastructure, folder structure — the everyday meanings of "architecture." None of them are this.
+
 **Module** — anything with an interface and an implementation. Deliberately scale-agnostic: a function, class, package, or tier-spanning slice. All of these count — scale doesn't change the vocabulary. 
 
 _Avoid_: unit, component, service.
