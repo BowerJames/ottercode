@@ -1,11 +1,14 @@
 import { ipcMain } from "electron";
 import {
   FS_LIST_CHILDREN_CHANNEL,
+  FS_READ_FILE_CHANNEL,
   FS_ROOT_CHANNEL,
 } from "../../shared/ipc/channels.js";
 import type {
   ListChildrenRequest,
   ListChildrenResult,
+  ReadFileRequest,
+  ReadFileResult,
   RootResult,
 } from "../../shared/ipc/fs.js";
 import type { WorkspaceService } from "../workspace/workspace-service.js";
@@ -25,5 +28,11 @@ export function registerFsIpc(service: WorkspaceService): void {
     FS_LIST_CHILDREN_CHANNEL,
     (_event, request: ListChildrenRequest): Promise<ListChildrenResult> =>
       service.listChildren(request.path),
+  );
+
+  ipcMain.handle(
+    FS_READ_FILE_CHANNEL,
+    (_event, request: ReadFileRequest): Promise<ReadFileResult> =>
+      service.readFile(request.path),
   );
 }

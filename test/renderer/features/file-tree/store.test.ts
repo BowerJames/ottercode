@@ -9,7 +9,7 @@ import {
 } from "../../../../src/shared/ipc/channels";
 import { createClient } from "../../../../src/shared/ipc/client";
 import type { FileEntry } from "../../../../src/shared/ipc/fs";
-import { createFakeInvoke } from "./fake-invoke";
+import { createFakeInvoke } from "../../fake-invoke";
 
 /**
  * Permanent suite. Each test protects a clause the components consume:
@@ -40,7 +40,7 @@ function snapshot(s: FileTreeState) {
     root: s.root,
     childrenByDir: s.childrenByDir,
     expandedDirs: s.expandedDirs,
-    selectedPath: s.selectedPath,
+    selectedEntry: s.selectedEntry,
   };
 }
 
@@ -119,11 +119,16 @@ describe("createFileTreeStore", () => {
     expect(store.getState().expandedDirs["/a"]).toBeUndefined();
   });
 
-  it("select sets the selected path", () => {
+  it("select stores the selected entry (metadata included)", () => {
     const { store } = makeStore();
+    const entry: FileEntry = {
+      name: "notes.txt",
+      path: "/a/notes.txt",
+      kind: "file",
+    };
 
-    store.getState().select("/a/notes.txt");
+    store.getState().select(entry);
 
-    expect(store.getState().selectedPath).toBe("/a/notes.txt");
+    expect(store.getState().selectedEntry).toEqual(entry);
   });
 });

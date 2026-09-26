@@ -85,16 +85,59 @@ body {
   text-overflow: ellipsis;
 }
 
-/* --- main pane --- */
+/* --- main pane (editor) --- */
 
 .main-pane {
   flex: 1;
   display: flex;
-  align-items: center;
-  justify-content: center;
+  min-width: 0;
+  background: #1e1e1e;
 }
 
-.main-pane h1 {
+.editor-pane {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.editor-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border-bottom: 1px solid #333;
+  font-size: 12px;
+  color: #9a9a9a;
+}
+
+.editor-file-name {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+.editor-dirty-dot {
+  color: #e2c08d;
+  font-size: 10px;
+}
+
+.editor-error {
+  padding: 8px 12px;
+  background: #5a1d1d;
+  color: #f0b0b0;
+  font-size: 12px;
+  border-bottom: 1px solid #7a2d2d;
+}
+
+.editor-empty {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   color: #5a5a5a;
-  font-weight: 400;
+}
+
+.editor-host {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
 }

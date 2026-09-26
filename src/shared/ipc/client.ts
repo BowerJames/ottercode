@@ -1,7 +1,13 @@
-import { FS_LIST_CHILDREN_CHANNEL, FS_ROOT_CHANNEL } from "./channels.js";
+import {
+  FS_LIST_CHILDREN_CHANNEL,
+  FS_READ_FILE_CHANNEL,
+  FS_ROOT_CHANNEL,
+} from "./channels.js";
 import type {
   ListChildrenRequest,
   ListChildrenResult,
+  ReadFileRequest,
+  ReadFileResult,
   RootResult,
 } from "./fs.js";
 
@@ -19,6 +25,7 @@ export interface OttercodeClient {
   fs: {
     root(): Promise<RootResult>;
     listChildren(path: string): Promise<ListChildrenResult>;
+    readFile(path: string): Promise<ReadFileResult>;
   };
 }
 
@@ -37,6 +44,10 @@ export function createClient(invoke: Invoke): OttercodeClient {
           FS_LIST_CHILDREN_CHANNEL,
           request,
         ) as Promise<ListChildrenResult>;
+      },
+      readFile(path: string) {
+        const request: ReadFileRequest = { path };
+        return invoke(FS_READ_FILE_CHANNEL, request) as Promise<ReadFileResult>;
       },
     },
   };

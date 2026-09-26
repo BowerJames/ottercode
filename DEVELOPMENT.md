@@ -41,7 +41,7 @@ by the noun it represents:
 src/
 ├── shared/                    # Importable by both processes. No Node, Electron, or DOM.
 │   ├── ipc/                   # THE contract: channels + events + typed client
-│   └── …                      # Pure domain logic (e.g. text buffer ops)
+│   └── …                      # Pure domain logic (e.g. shared domain helpers)
 │
 ├── main/
 │   ├── agent/                 # Owns the pi AgentSession: lifecycle + event mapping
@@ -129,7 +129,7 @@ pre-committed list. Don't pre-scaffold empty trees anywhere.
 Every capability the app has is declared once in `src/shared/ipc/`:
 
 - **Channels**: request/response, named with a `domain:action` convention
-  (e.g. `fs:openDocument`, `agent:prompt`), each with request and response
+  (e.g. `fs:listChildren`, `fs:readFile`, `agent:prompt`), each with request and response
   schemas.
 - **Events**: main → renderer push. Everything the agent does arrives this
   way. Payloads are contract-owned types, never raw pi shapes.

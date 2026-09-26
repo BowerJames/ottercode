@@ -1,3 +1,4 @@
+import { EditorPane } from "./features/editor/EditorPane";
 import { FileTree } from "./features/file-tree/FileTree";
 
 export function App() {
@@ -5,7 +6,7 @@ export function App() {
     <div className="app-shell">
       <FileTree />
       <main className="main-pane">
-        <h1>ottercode</h1>
+        <EditorPane />
       </main>
     </div>
   );

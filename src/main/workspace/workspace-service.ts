@@ -1,21 +1,34 @@
 import path from "node:path";
-import type { FileEntry, ListChildrenResult } from "../../shared/ipc/fs.js";
-import type { ListDir } from "./list-dir.js";
+import type {
+  FileEntry,
+  ListChildrenResult,
+  ReadFileResult,
+} from "../../shared/ipc/fs.js";
 import { mapFsError } from "./map-fs-error.js";
+import type { WorkspaceFs } from "./workspace-fs.js";
+
+/**
+ * Policy: reads above this many characters are refused with
+ * "too-large". The number is tunable; the refusal is contract.
+ */
+export const READ_FILE_MAX_CHARS = 10 * 1024 * 1024;
+
+/** Policy: a NUL this early means the file is not text. */
+const BINARY_SNIFF_CHARS = 8192;
 
 /**
  * The disk authority: the single choke point for workspace state. v1 is
  * stateless and read-only — each call goes straight to the seam.
- * Absoluteness of listed paths is a caller precondition (the renderer is
+ * Absoluteness of paths is a caller precondition (the renderer is
  * seeded by fs:root and only ever passes absolute paths back).
  */
 export class WorkspaceService {
   private readonly root: string;
-  private readonly listDir: ListDir;
+  private readonly fs: WorkspaceFs;
 
-  constructor(root: string, listDir: ListDir) {
+  constructor(root: string, fs: WorkspaceFs) {
     this.root = root;
-    this.listDir = listDir;
+    this.fs = fs;
   }
 
   getRoot(): string {
@@ -24,7 +37,7 @@ export class WorkspaceService {
 
   async listChildren(dirPath: string): Promise<ListChildrenResult> {
     try {
-      const children = await this.listDir(dirPath);
+      const children = await this.fs.listDir(dirPath);
       return {
         ok: true,
         entries: children
@@ -35,6 +48,24 @@ export class WorkspaceService {
           }))
           .sort(compareEntries),
       };
+    } catch (error) {
+      return { ok: false, error: mapFsError(error) };
+    }
+  }
+
+  async readFile(filePath: string): Promise<ReadFileResult> {
+    try {
+      const content = await this.fs.readFile(filePath);
+      if (content.length > READ_FILE_MAX_CHARS) {
+        return { ok: false, error: { code: "too-large" } };
+      }
+      if (content.slice(0, BINARY_SNIFF_CHARS).includes("\0")) {
+        return { ok: false, error: { code: "binary" } };
+      }
+      // Pass-through by design: content crosses verbatim (no
+      // truncation, normalization, or trimming) — the agent flow
+      // depends on buffers matching the disk bytes.
+      return { ok: true, content };
     } catch (error) {
       return { ok: false, error: mapFsError(error) };
     }

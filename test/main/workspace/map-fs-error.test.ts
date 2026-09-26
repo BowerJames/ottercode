@@ -3,12 +3,12 @@ import { mapFsError } from "../../../src/main/workspace/map-fs-error.js";
 import { fsError } from "./fake-dir-tree.js";
 
 /**
- * Permanent suite (totality half only): the service depends on
- * mapFsError never throwing to keep its "failures come back as values"
- * promise, and the store's ok-branch consumes that. The specific code
- * mappings (EACCES -> permission-denied, …) had no consumer and were
- * deleted at the promotion review; re-pin them when a UI affordance
- * branches on error codes.
+ * Permanent suite (totality only): the service depends on mapFsError
+ * never throwing to keep its "failures come back as values" promise,
+ * and the stores' ok-branches consume that. The specific code mappings
+ * have no computational consumer — the error banner renders text
+ * nothing downstream computes with — so they stay unpinned until one
+ * arrives.
  */
 
 describe("mapFsError", () => {

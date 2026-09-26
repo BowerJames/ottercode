@@ -16,8 +16,9 @@ export type FileTreeState = {
   childrenByDir: Record<string, FileEntry[] | undefined>;
   /** The open set: expanded directory path -> true. */
   expandedDirs: Record<string, true>;
-  /** The cursor: currently selected entry path. */
-  selectedPath: string | null;
+  /** The cursor: the selected entry, metadata included (the editor's
+   * kind branch consumes it). */
+  selectedEntry: FileEntry | null;
 
   /**
    * Bootstrap: fetch the workspace root and seed its children. The
@@ -34,7 +35,8 @@ export type FileTreeState = {
   collapse(path: string): void;
   /** Expand if collapsed, collapse if expanded. */
   toggle(path: string): Promise<void>;
-  select(path: string): void;
+  /** Records the selected entry. */
+  select(entry: FileEntry): void;
 };
 
 export type UseFileTreeStore = UseBoundStore<StoreApi<FileTreeState>>;
@@ -49,7 +51,7 @@ export function createFileTreeStore(fs: FileTreeFs): UseFileTreeStore {
     root: null,
     childrenByDir: {},
     expandedDirs: {},
-    selectedPath: null,
+    selectedEntry: null,
 
     async loadRoot() {
       const { root } = await fs.root();
@@ -88,8 +90,8 @@ export function createFileTreeStore(fs: FileTreeFs): UseFileTreeStore {
       }
     },
 
-    select(path) {
-      set({ selectedPath: path });
+    select(entry) {
+      set({ selectedEntry: entry });
     },
   }));
 }

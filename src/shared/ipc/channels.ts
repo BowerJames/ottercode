@@ -9,3 +9,6 @@ export const FS_ROOT_CHANNEL = "fs:root";
 
 /** Request/response: the direct children of one directory. */
 export const FS_LIST_CHILDREN_CHANNEL = "fs:listChildren";
+
+/** Request/response: the text content of one file. */
+export const FS_READ_FILE_CHANNEL = "fs:readFile";

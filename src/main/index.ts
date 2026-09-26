@@ -1,7 +1,7 @@
 import path from "node:path";
 import { app, BrowserWindow } from "electron";
 import { registerFsIpc } from "./ipc/register-fs-ipc.js";
-import { realListDir } from "./workspace/real-list-dir.js";
+import { realWorkspaceFs } from "./workspace/real-workspace-fs.js";
 import { WorkspaceService } from "./workspace/workspace-service.js";
 
 function createWindow(): void {
@@ -27,7 +27,7 @@ function createWindow(): void {
 }
 
 app.whenReady().then(() => {
-  const workspace = new WorkspaceService(process.cwd(), realListDir);
+  const workspace = new WorkspaceService(process.cwd(), realWorkspaceFs);
   registerFsIpc(workspace);
 
   createWindow();

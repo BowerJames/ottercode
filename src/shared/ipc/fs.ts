@@ -27,17 +27,27 @@ export type RootResult = {
 };
 
 /**
- * Failure modes of a directory listing. Deliberately part of the payload,
- * not thrown: Electron's invoke mangles thrown errors, and consumers need
- * to discriminate outcomes.
+ * Failure modes of file operations. Deliberately part of the payload,
+ * not thrown: Electron's invoke mangles thrown errors, and consumers
+ * need to discriminate outcomes. One union for all fs channels — the
+ * error surface treats codes uniformly, and the service's mapper feeds
+ * every channel.
  */
-export type FsListError =
+export type FsErrorCode =
   /** Path doesn't exist — e.g. deleted since it was rendered. */
-  | { code: "not-found" }
-  /** Path exists but is a file. */
-  | { code: "not-a-directory" }
-  | { code: "permission-denied" }
-  | { code: "unknown" };
+  | "not-found"
+  /** Path exists but is a file (directory listing). */
+  | "not-a-directory"
+  /** Path is a directory (file read). */
+  | "is-a-directory"
+  | "permission-denied"
+  /** Read content is not text (NUL within the first 8k characters). */
+  | "binary"
+  /** Read content exceeds the cap (policy; see WorkspaceService). */
+  | "too-large"
+  | "unknown";
+
+export type FsError = { code: FsErrorCode };
 
 /** Response for FS_LIST_CHILDREN_CHANNEL. */
 export type ListChildrenResult =
@@ -51,4 +61,23 @@ export type ListChildrenResult =
        */
       entries: FileEntry[];
     }
-  | { ok: false; error: FsListError };
+  | { ok: false; error: FsError };
+
+/** Request for FS_READ_FILE_CHANNEL. */
+export type ReadFileRequest = {
+  /** Absolute path of the file to read. */
+  path: string;
+};
+
+/** Response for FS_READ_FILE_CHANNEL. */
+export type ReadFileResult =
+  | {
+      ok: true;
+      /**
+       * The file's text, decoded as UTF-8 by the adapter and passed
+       * through verbatim — no truncation, no normalization. The decode
+       * is adapter-owned; the service owns not touching it.
+       */
+      content: string;
+    }
+  | { ok: false; error: FsError };

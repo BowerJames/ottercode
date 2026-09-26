@@ -1,4 +1,4 @@
-import type { Invoke } from "../../../../src/shared/ipc/client";
+import type { Invoke } from "../../src/shared/ipc/client";
 
 /**
  * Recording, programmable fake for the Invoke transport seam. Responses

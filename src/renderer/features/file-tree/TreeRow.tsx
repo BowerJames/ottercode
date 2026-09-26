@@ -9,7 +9,7 @@ import { useFileTree } from "./use-file-tree";
  */
 export function TreeRow({ entry, depth }: { entry: FileEntry; depth: number }) {
   const expanded = useFileTree((s) => s.expandedDirs[entry.path] === true);
-  const selected = useFileTree((s) => s.selectedPath === entry.path);
+  const selected = useFileTree((s) => s.selectedEntry?.path === entry.path);
   const toggle = useFileTree((s) => s.toggle);
   const select = useFileTree((s) => s.select);
   const isDir = entry.kind === "directory";
@@ -22,7 +22,7 @@ export function TreeRow({ entry, depth }: { entry: FileEntry; depth: number }) {
         data-selected={selected}
         style={{ paddingLeft: 8 + depth * 14 }}
         onClick={() => {
-          select(entry.path);
+          select(entry);
           if (isDir) void toggle(entry.path);
         }}
       >
