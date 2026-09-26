@@ -2,6 +2,10 @@
 
 Guidance for coding agents (like pi) working in this repository.
 
+**Read [DEVELOPMENT.md](DEVELOPMENT.md) first** — it defines the code
+layout, module responsibilities, the IPC contract rules, and the document
+sync model. The conventions below are the operational summary.
+
 ## Commands
 
 - `npm run dev` — run the Electron app with renderer HMR

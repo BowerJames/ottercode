@@ -17,6 +17,9 @@ A local AI text editor powered by [pi-coding-agent](https://www.npmjs.com/packag
 
 ### Architecture
 
+See [DEVELOPMENT.md](DEVELOPMENT.md) for the developer guide: code
+layout, module responsibilities, and IPC contract rules. Summary:
+
 - **Main process** (`src/main`) — full Node.js access. Owns the pi
   `AgentSession`, model runtime, and session/settings managers. The pi SDK
   must never be imported from the renderer.
