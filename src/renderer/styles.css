@@ -90,8 +90,122 @@ body {
 .main-pane {
   flex: 1;
   display: flex;
+  flex-direction: column;
   min-width: 0;
   background: #1e1e1e;
+}
+
+/* --- composer --- */
+
+.composer {
+  display: flex;
+  gap: 8px;
+  padding: 8px 12px;
+  border-top: 1px solid #333;
+}
+
+.composer-input {
+  flex: 1;
+  padding: 6px 10px;
+  background: #252526;
+  color: #d4d4d4;
+  border: 1px solid #3c3c3c;
+  border-radius: 4px;
+  font: inherit;
+}
+
+.composer-input:focus {
+  outline: none;
+  border-color: #4f7cc4;
+}
+
+.composer-input:disabled {
+  opacity: 0.6;
+}
+
+.composer-send,
+.composer-stop {
+  padding: 6px 14px;
+  border: none;
+  border-radius: 4px;
+  font: inherit;
+  cursor: pointer;
+}
+
+.composer-send {
+  background: #2d4f8f;
+  color: #e8e8e8;
+}
+
+.composer-send:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.composer-stop {
+  background: #7a2d2d;
+  color: #f0b0b0;
+}
+
+/* --- agent rail (transcript) --- */
+
+.agent-rail {
+  width: 320px;
+  min-width: 240px;
+  display: flex;
+  flex-direction: column;
+  background: #252526;
+  border-left: 1px solid #333;
+}
+
+.agent-rail-header {
+  padding: 8px 10px 6px;
+  font-size: 11px;
+  font-weight: 600;
+  color: #9a9a9a;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  border-bottom: 1px solid #333;
+}
+
+.agent-rail-entries {
+  flex: 1;
+  overflow-y: auto;
+  padding: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.chat-entry {
+  padding: 6px 8px;
+  border-radius: 4px;
+  font-size: 12px;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.chat-user {
+  background: #2d4f8f;
+  color: #e8e8e8;
+}
+
+.chat-assistant {
+  background: #2a2d2e;
+  color: #d4d4d4;
+}
+
+.chat-tool {
+  background: transparent;
+  color: #8a8a8a;
+  font-size: 11px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+.chat-error {
+  background: #5a1d1d;
+  color: #f0b0b0;
 }
 
 .editor-pane {

@@ -12,3 +12,12 @@ export const FS_LIST_CHILDREN_CHANNEL = "fs:listChildren";
 
 /** Request/response: the text content of one file. */
 export const FS_READ_FILE_CHANNEL = "fs:readFile";
+
+/** Request/response: submit a turn to the coding agent. */
+export const AGENT_SUBMIT_CHANNEL = "agent:submit";
+
+/** Request/response: cancel the agent's current turn. */
+export const AGENT_ABORT_CHANNEL = "agent:abort";
+
+/** Push: the agent's event stream (main -> renderer). */
+export const AGENT_EVENTS_CHANNEL = "agent:events";

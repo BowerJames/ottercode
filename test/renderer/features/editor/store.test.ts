@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { createEditorStore } from "../../../../src/renderer/features/editor/store";
 import { FS_READ_FILE_CHANNEL } from "../../../../src/shared/ipc/channels";
 import { createClient } from "../../../../src/shared/ipc/client";
-import { createFakeInvoke } from "../../fake-invoke";
+import { createFakeTransport } from "../../fake-transport";
 
 /**
  * Permanent suite — one test, one consumer: EditorPane renders
@@ -17,8 +17,8 @@ import { createFakeInvoke } from "../../fake-invoke";
  */
 
 function makeStore() {
-  const harness = createFakeInvoke();
-  const store = createEditorStore(createClient(harness.fakeInvoke).fs);
+  const harness = createFakeTransport();
+  const store = createEditorStore(createClient(harness.transport).fs);
   return { harness, store };
 }
 

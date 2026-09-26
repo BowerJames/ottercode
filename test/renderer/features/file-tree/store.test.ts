@@ -9,7 +9,7 @@ import {
 } from "../../../../src/shared/ipc/channels";
 import { createClient } from "../../../../src/shared/ipc/client";
 import type { FileEntry } from "../../../../src/shared/ipc/fs";
-import { createFakeInvoke } from "../../fake-invoke";
+import { createFakeTransport } from "../../fake-transport";
 
 /**
  * Permanent suite. Each test protects a clause the components consume:
@@ -29,8 +29,8 @@ const A_CHILDREN: FileEntry[] = [
 ];
 
 function makeStore() {
-  const harness = createFakeInvoke();
-  const store = createFileTreeStore(createClient(harness.fakeInvoke).fs);
+  const harness = createFakeTransport();
+  const store = createFileTreeStore(createClient(harness.transport).fs);
   return { harness, store };
 }
 
