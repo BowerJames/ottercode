@@ -29,8 +29,33 @@ export type AgentSession = {
   dispose(): void;
 };
 
+/** A permission question from the provider: may this tool run with
+ * these arguments? */
+export type AgentPermissionRequest = {
+  toolName: string;
+  input: unknown;
+};
+
+/** The answer. Deny carries a message the agent sees. */
+export type AgentPermissionDecision =
+  | { behavior: "allow" }
+  | { behavior: "deny"; message: string };
+
+export type AgentSessionOptions = {
+  root: string;
+  /**
+   * Optional capability: providers that support permission gating
+   * (Claude Code) call this before a gated tool executes; the turn
+   * blocks until it answers. Absent means the provider runs ungated
+   * (pi). There is no park deadline — the answerer must always
+   * answer (the service owns abort/swap denial when the card UI
+   * lands; until then its policy answers instantly).
+   */
+  requestPermission?: (
+    request: AgentPermissionRequest,
+  ) => Promise<AgentPermissionDecision>;
+};
+
 export type AgentProvider = {
-  /** Async by nature: providers load models (pi) or spawn processes
-   * (Claude Code) before a session exists. */
-  createSession(options: { root: string }): Promise<AgentSession>;
+  createSession(options: AgentSessionOptions): Promise<AgentSession>;
 };

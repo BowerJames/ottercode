@@ -4,7 +4,8 @@ import { useAgentChat } from "./use-agent-chat";
 
 /**
  * The transcript rail: the record of the conversation, not the stage.
- * Absent until the first entry exists; auto-scrolls while streaming.
+ * Always visible since the provider picker moved in; the entries area
+ * fills as the conversation does, auto-scrolling while streaming.
  */
 export function AgentRail() {
   const entries = useAgentChat((s) => s.entries);
@@ -16,11 +17,13 @@ export function AgentRail() {
     if (el !== null) el.scrollTop = el.scrollHeight;
   }, [entries]);
 
-  if (entries.length === 0) return null;
-
   return (
     <aside className="agent-rail">
-      <div className="agent-rail-header">agent</div>
+      <div className="agent-rail-header">
+        <span>agent</span>
+        <ProviderPicker />
+      </div>
+      <SwitchError />
       <div className="agent-rail-entries" ref={scrollRef}>
         {entries.map((entry) => (
           <TranscriptRow key={entry.id} entry={entry} />
@@ -28,6 +31,40 @@ export function AgentRail() {
       </div>
     </aside>
   );
+}
+
+/** Provider dropdown. Swapping cancels an in-flight turn and clears
+ * the conversation (per the swap contract). Failures revert here. */
+function ProviderPicker() {
+  const provider = useAgentChat((s) => s.provider);
+  const available = useAgentChat((s) => s.available);
+  const switchProvider = useAgentChat((s) => s.switchProvider);
+  const loadProviderInfo = useAgentChat((s) => s.loadProviderInfo);
+
+  useEffect(() => {
+    void loadProviderInfo();
+  }, [loadProviderInfo]);
+
+  return (
+    <select
+      className="provider-select"
+      value={provider}
+      aria-label="agent provider"
+      onChange={(e) => void switchProvider(e.target.value)}
+    >
+      {available.map((name) => (
+        <option key={name} value={name}>
+          {name}
+        </option>
+      ))}
+    </select>
+  );
+}
+
+function SwitchError() {
+  const switchError = useAgentChat((s) => s.switchError);
+  if (switchError === null) return null;
+  return <div className="chat-entry chat-error">{switchError}</div>;
 }
 
 function TranscriptRow({ entry }: { entry: TranscriptEntry }) {

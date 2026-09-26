@@ -20,9 +20,29 @@ export type AgentSubmitRequest = {
  */
 export type AgentSubmitResult = { ok: true };
 
+/** Response for AGENT_PROVIDER_CHANNEL: the active provider plus the
+ * picker's options. */
+export type AgentProviderInfo = {
+  provider: string;
+  available: string[];
+};
+
+/** Request for AGENT_SET_PROVIDER_CHANNEL. */
+export type SetProviderRequest = {
+  provider: string;
+};
+
+/** Response for AGENT_SET_PROVIDER_CHANNEL. */
+export type SetProviderResult =
+  | { ok: true }
+  | { ok: false; error: { code: "unavailable" } };
+
 /**
  * One event in the agent's stream. Clauses:
  * - every turn is bracketed: turn-start … (turn-end | error).
+ *   Brackets hold within a session's lifetime — swapping providers
+ *   cancels an in-flight turn WITHOUT a terminator; consumers reset
+ *   via the swap response, not events.
  * - assistant-delta text is APPEND-ONLY; granularity is
  *   provider-dependent (token-fine or message-sized).
  * - tool ids are provider-opaque pairing tokens: a tool-start id is

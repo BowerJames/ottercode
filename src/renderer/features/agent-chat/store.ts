@@ -4,7 +4,7 @@ import type { OttercodeClient } from "../../../shared/ipc/client";
 /** The slice of the client the agent chat depends on. */
 export type AgentChatClient = Pick<
   OttercodeClient["agent"],
-  "submit" | "abort" | "onEvent"
+  "submit" | "abort" | "onEvent" | "provider" | "setProvider"
 >;
 
 /** One rendered row of the transcript. Assistant entries accumulate
@@ -19,10 +19,21 @@ export type TranscriptEntry =
 export type AgentChatState = {
   entries: TranscriptEntry[];
   status: "idle" | "working";
+  /** The active provider (bootstrap default; the dropdown's value). */
+  provider: string;
+  /** The picker's options, from the service registry. */
+  available: string[];
+  /** Last failed switch; null otherwise. The dropdown reverts. */
+  switchError: string | null;
   /** Appends the user entry and submits the turn. Ignored while a turn
    * is working. Settles only after the store reflects the outcome. */
   send(message: string): Promise<void>;
   abort(): void;
+  /** Swaps the agent provider: new session, cleared transcript.
+   * Failure keeps everything — the old session keeps running. */
+  switchProvider(name: string): Promise<void>;
+  /** Bootstraps provider + options from the service. */
+  loadProviderInfo(): Promise<void>;
 };
 
 export type UseAgentChatStore = UseBoundStore<StoreApi<AgentChatState>>;
@@ -93,6 +104,9 @@ export function createAgentChatStore(
     return {
       entries: [],
       status: "idle",
+      provider: "",
+      available: [],
+      switchError: null,
 
       async send(message) {
         if (get().status === "working") return;
@@ -106,6 +120,27 @@ export function createAgentChatStore(
 
       abort() {
         agent.abort();
+      },
+
+      async switchProvider(name) {
+        const result = await agent.setProvider(name);
+        if (result.ok) {
+          // New conversation: the reset comes from this response, not
+          // from events (the cancelled turn emits no terminator).
+          set({
+            provider: name,
+            entries: [],
+            status: "idle",
+            switchError: null,
+          });
+        } else {
+          set({ switchError: `${name} unavailable` });
+        }
+      },
+
+      async loadProviderInfo() {
+        const info = await agent.provider();
+        set({ provider: info.provider, available: info.available });
       },
     };
   });

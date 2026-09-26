@@ -21,3 +21,9 @@ export const AGENT_ABORT_CHANNEL = "agent:abort";
 
 /** Push: the agent's event stream (main -> renderer). */
 export const AGENT_EVENTS_CHANNEL = "agent:events";
+
+/** Request/response: the active agent provider and options. */
+export const AGENT_PROVIDER_CHANNEL = "agent:provider";
+
+/** Request/response: swap the agent provider (new session). */
+export const AGENT_SET_PROVIDER_CHANNEL = "agent:setProvider";

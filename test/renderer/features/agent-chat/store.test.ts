@@ -3,6 +3,8 @@ import { createAgentChatStore } from "../../../../src/renderer/features/agent-ch
 import {
   AGENT_ABORT_CHANNEL,
   AGENT_EVENTS_CHANNEL,
+  AGENT_PROVIDER_CHANNEL,
+  AGENT_SET_PROVIDER_CHANNEL,
   AGENT_SUBMIT_CHANNEL,
 } from "../../../../src/shared/ipc/channels";
 import { createClient } from "../../../../src/shared/ipc/client";
@@ -94,5 +96,58 @@ describe("createAgentChatStore", () => {
     expect(harness.calls.some((c) => c.channel === AGENT_ABORT_CHANNEL)).toBe(
       true,
     );
+  });
+
+  // Picker tests consumed by the rail: the dropdown renders provider/
+  // available and dispatches switchProvider on change:
+  it("switchProvider clears the transcript and adopts the new provider", async () => {
+    const { harness, store } = makeStore();
+    harness.push(AGENT_EVENTS_CHANNEL, { type: "turn-start" });
+    harness.push(AGENT_EVENTS_CHANNEL, {
+      type: "assistant-delta",
+      text: "mid",
+    });
+    harness.responses.set(AGENT_SET_PROVIDER_CHANNEL, { ok: true });
+
+    await store.getState().switchProvider("claude");
+
+    const s = store.getState();
+    expect(s.provider).toBe("claude");
+    expect(s.entries).toEqual([]);
+    expect(s.status).toBe("idle");
+  });
+
+  it("a failed switch keeps the state and records the error", async () => {
+    const { harness, store } = makeStore();
+    harness.responses.set(AGENT_PROVIDER_CHANNEL, {
+      provider: "pi",
+      available: ["pi", "claude"],
+    });
+    await store.getState().loadProviderInfo();
+    harness.responses.set(AGENT_SET_PROVIDER_CHANNEL, {
+      ok: false,
+      error: { code: "unavailable" },
+    });
+    harness.push(AGENT_EVENTS_CHANNEL, { type: "turn-start" });
+
+    await store.getState().switchProvider("claude");
+
+    const s = store.getState();
+    expect(s.provider).toBe("pi");
+    expect(s.status).toBe("working"); // old turn keeps running
+    expect(s.switchError).toBe("claude unavailable");
+  });
+
+  it("loadProviderInfo bootstraps the provider and options", async () => {
+    const { harness, store } = makeStore();
+    harness.responses.set(AGENT_PROVIDER_CHANNEL, {
+      provider: "pi",
+      available: ["pi", "claude"],
+    });
+
+    await store.getState().loadProviderInfo();
+
+    expect(store.getState().provider).toBe("pi");
+    expect(store.getState().available).toEqual(["pi", "claude"]);
   });
 });

@@ -2,6 +2,7 @@ import path from "node:path";
 import { app, BrowserWindow } from "electron";
 import { AGENT_EVENTS_CHANNEL } from "../shared/ipc/channels.js";
 import { AgentService } from "./agent/agent-service.js";
+import { claudeProvider } from "./agent/providers/claude.js";
 import { piProvider } from "./agent/providers/pi.js";
 import { registerAgentIpc } from "./ipc/register-agent-ipc.js";
 import { registerFsIpc } from "./ipc/register-fs-ipc.js";
@@ -44,7 +45,8 @@ app.whenReady().then(async () => {
   try {
     const agent = await AgentService.create(
       process.cwd(),
-      piProvider,
+      { pi: piProvider, claude: claudeProvider },
+      "pi",
       (event) => {
         win.webContents.send(AGENT_EVENTS_CHANNEL, event);
       },

@@ -1,10 +1,15 @@
 import { ipcMain } from "electron";
 import type {
+  AgentProviderInfo,
   AgentSubmitRequest,
   AgentSubmitResult,
+  SetProviderRequest,
+  SetProviderResult,
 } from "../../shared/ipc/agent.js";
 import {
   AGENT_ABORT_CHANNEL,
+  AGENT_PROVIDER_CHANNEL,
+  AGENT_SET_PROVIDER_CHANNEL,
   AGENT_SUBMIT_CHANNEL,
 } from "../../shared/ipc/channels.js";
 import type { AgentService } from "../agent/agent-service.js";
@@ -22,4 +27,15 @@ export function registerAgentIpc(service: AgentService): void {
   );
 
   ipcMain.handle(AGENT_ABORT_CHANNEL, (): void => service.abort());
+
+  ipcMain.handle(
+    AGENT_PROVIDER_CHANNEL,
+    (): AgentProviderInfo => service.getProvider(),
+  );
+
+  ipcMain.handle(
+    AGENT_SET_PROVIDER_CHANNEL,
+    (_event, request: SetProviderRequest): Promise<SetProviderResult> =>
+      service.setProvider(request.provider),
+  );
 }
