@@ -1,0 +1,100 @@
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  font-family: system-ui, sans-serif;
+  font-size: 13px;
+  color: #d4d4d4;
+  background: #1e1e1e;
+}
+
+.app-shell {
+  display: flex;
+  height: 100vh;
+}
+
+/* --- sidebar (file tree) --- */
+
+.sidebar {
+  width: 260px;
+  min-width: 180px;
+  overflow: auto;
+  background: #252526;
+  border-right: 1px solid #333;
+  padding-bottom: 8px;
+}
+
+.sidebar-header {
+  padding: 8px 10px 6px;
+  font-size: 11px;
+  font-weight: 600;
+  color: #9a9a9a;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.sidebar-empty {
+  padding: 4px 10px;
+  color: #6a6a6a;
+}
+
+.tree-row {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  width: 100%;
+  padding: 2px 6px 2px 8px;
+  margin-right: 6px;
+  cursor: pointer;
+  user-select: none;
+  white-space: nowrap;
+  border-radius: 3px;
+  background: none;
+  border: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+}
+
+.tree-row:hover {
+  background: #2a2d2e;
+}
+
+.tree-row[data-selected="true"] {
+  background: #37373d;
+}
+
+.tree-twist {
+  width: 14px;
+  flex: none;
+  color: #8a8a8a;
+  text-align: center;
+  font-size: 10px;
+}
+
+.tree-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* --- main pane --- */
+
+.main-pane {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.main-pane h1 {
+  color: #5a5a5a;
+  font-weight: 400;
+}

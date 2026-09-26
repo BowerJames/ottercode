@@ -17,7 +17,7 @@
     "src/main/**/*.ts",
     "bin/**/*.mjs",
     "scripts/**/*.mjs",
-    "test/**/*.ts",
+    "test/main/**/*.ts",
     "*.ts"
   ]
 }

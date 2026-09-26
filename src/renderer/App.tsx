@@ -1,15 +1,12 @@
+import { FileTree } from "./features/file-tree/FileTree";
+
 export function App() {
   return (
-    <main
-      style={{
-        fontFamily: "system-ui, sans-serif",
-        display: "flex",
-        height: "100vh",
-        alignItems: "center",
-        justifyContent: "center",
-      }}
-    >
-      <h1>ottercode</h1>
-    </main>
+    <div className="app-shell">
+      <FileTree />
+      <main className="main-pane">
+        <h1>ottercode</h1>
+      </main>
+    </div>
   );
 }
