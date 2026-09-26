@@ -26,11 +26,14 @@ export function fsError(code: string, message = code): Error {
 
 /**
  * Builds a fake workspace tree and returns its (equally fake) absolute
- * root plus the WorkspaceFs adapter over it.
+ * root, the WorkspaceFs adapter over it, and kindOf — the disk truth
+ * for kind assertions (membership stays unpinned; tests verify shapes
+ * against whatever the service returned).
  */
 export function fakeDirTree(spec: FakeDirTreeSpec): {
   root: string;
   fs: WorkspaceFs;
+  kindOf(path: string): "file" | "directory" | undefined;
 } {
   const root = path.resolve("/fake-workspace");
   const kinds = new Map<string, "file" | "directory">();
@@ -86,5 +89,5 @@ export function fakeDirTree(spec: FakeDirTreeSpec): {
     },
   };
 
-  return { root, fs };
+  return { root, fs, kindOf: (p) => kinds.get(path.resolve(p)) };
 }

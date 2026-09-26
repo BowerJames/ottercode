@@ -1,8 +1,5 @@
 import { describe, expect, it } from "vitest";
-import {
-  createFileTreeStore,
-  type FileTreeState,
-} from "../../../../src/renderer/features/file-tree/store";
+import { createFileTreeStore } from "../../../../src/renderer/features/file-tree/store";
 import {
   FS_LIST_CHILDREN_CHANNEL,
   FS_ROOT_CHANNEL,
@@ -16,7 +13,9 @@ import { createFakeTransport } from "../../fake-transport";
  * FileTree renders from loadRoot's seeding; TreeRow reads the cache and
  * the open set, branches on kind, and dispatches toggle/select. Deleted
  * at the promotion review (no consumer, safe-refactor traps): cache-hit
- * no-refetch, collapse-keeps-cache, and the fetch-count assertions.
+ * no-refetch, collapse-keeps-cache, the fetch-count assertions, and
+ * the expand-failure snapshot (the ok-branch is compiler-guaranteed;
+ * its effects are pixels — same ruling as the editor's failure test).
  */
 
 const WS_CHILDREN: FileEntry[] = [
@@ -32,16 +31,6 @@ function makeStore() {
   const harness = createFakeTransport();
   const store = createFileTreeStore(createClient(harness.transport).fs);
   return { harness, store };
-}
-
-/** The observable state fields — the query side of the store. */
-function snapshot(s: FileTreeState) {
-  return {
-    root: s.root,
-    childrenByDir: s.childrenByDir,
-    expandedDirs: s.expandedDirs,
-    selectedEntry: s.selectedEntry,
-  };
 }
 
 describe("createFileTreeStore", () => {
@@ -77,19 +66,6 @@ describe("createFileTreeStore", () => {
       (c) => c.channel === FS_LIST_CHILDREN_CHANNEL,
     );
     expect(call?.payload).toEqual({ path: "/a" });
-  });
-
-  it("expand failure (ok: false) leaves the store untouched", async () => {
-    const { harness, store } = makeStore();
-    harness.responses.set(FS_LIST_CHILDREN_CHANNEL, {
-      ok: false,
-      error: { code: "not-found" },
-    });
-
-    const before = snapshot(store.getState());
-    await store.getState().expand("/a");
-
-    expect(snapshot(store.getState())).toEqual(before);
   });
 
   it("collapse unmarks expansion", async () => {
