@@ -27,3 +27,6 @@ export const AGENT_PROVIDER_CHANNEL = "agent:provider";
 
 /** Request/response: swap the agent provider (new session). */
 export const AGENT_SET_PROVIDER_CHANNEL = "agent:setProvider";
+
+/** Request/response: change the agent model (new session). */
+export const AGENT_SET_MODEL_CHANNEL = "agent:setModel";

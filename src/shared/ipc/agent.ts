@@ -6,12 +6,29 @@
  */
 
 /**
- * Request for AGENT_SUBMIT_CHANNEL. Wrapped for growth: attachments
- * (diffs, comments) join as fields later without reshaping.
+ * One user-edited file riding along on a turn: both sides of the
+ * edit, verbatim. Semantic payload by design — the wire never carries
+ * a rendered prompt or a pre-computed diff; prompt format is main's
+ * policy (compose-prompt), so format experiments move nothing here.
+ */
+export type AgentFileEdit = {
+  /** Absolute path of the edited file. */
+  path: string;
+  /** Disk content at load time (the diff base). */
+  original: string;
+  /** The user's current in-memory version. */
+  edited: string;
+};
+
+/**
+ * Request for AGENT_SUBMIT_CHANNEL. `edits` are the dirty working
+ * copies at submit time (empty when none). Repeat sends repeat the
+ * edits — they read as current state, not new deltas.
  */
 export type AgentSubmitRequest = {
   /** The user's message for this turn. */
   message: string;
+  edits: AgentFileEdit[];
 };
 
 /**
@@ -21,10 +38,20 @@ export type AgentSubmitRequest = {
 export type AgentSubmitResult = { ok: true };
 
 /** Response for AGENT_PROVIDER_CHANNEL: the active provider plus the
- * picker's options. */
+ * picker's options, and the active model plus its options (adapter-
+ * enumerated — only models that provider can actually switch to). */
+export type AgentModelInfo = {
+  id: string;
+  label: string;
+};
+
 export type AgentProviderInfo = {
   provider: string;
   available: string[];
+  /** The model actually in effect (resolved by the adapter at session
+   * creation — the concrete default when none was chosen). */
+  model: string;
+  models: AgentModelInfo[];
 };
 
 /** Request for AGENT_SET_PROVIDER_CHANNEL. */
@@ -32,10 +59,16 @@ export type SetProviderRequest = {
   provider: string;
 };
 
-/** Response for AGENT_SET_PROVIDER_CHANNEL. */
-export type SetProviderResult =
+/** Response for AGENT_SET_PROVIDER_CHANNEL and AGENT_SET_MODEL_CHANNEL. */
+export type AgentReconfigResult =
   | { ok: true }
   | { ok: false; error: { code: "unavailable" } };
+
+/** Request for AGENT_SET_MODEL_CHANNEL. Changing the model starts a
+ * new session (uniform with provider swaps). */
+export type SetModelRequest = {
+  model: string;
+};
 
 /**
  * One event in the agent's stream. Clauses:

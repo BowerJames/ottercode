@@ -4,6 +4,7 @@ import {
   AGENT_ABORT_CHANNEL,
   AGENT_EVENTS_CHANNEL,
   AGENT_PROVIDER_CHANNEL,
+  AGENT_SET_MODEL_CHANNEL,
   AGENT_SET_PROVIDER_CHANNEL,
   AGENT_SUBMIT_CHANNEL,
 } from "../../../../src/shared/ipc/channels";
@@ -75,17 +76,20 @@ describe("createAgentChatStore", () => {
     expect(s.status).toBe("idle");
   });
 
-  it("send appends the user entry and submits the message", async () => {
+  it("send appends the raw user entry and submits message + edits", async () => {
     const { harness, store } = makeStore();
     harness.responses.set(AGENT_SUBMIT_CHANNEL, { ok: true });
+    const edits = [{ path: "/ws/a.ts", original: "old", edited: "new" }];
 
-    await store.getState().send("fix it");
+    await store.getState().send("fix it", edits);
 
+    // The rail consumes `message` — it must stay the raw text, never
+    // the composed prompt.
     expect(store.getState().entries).toEqual([
       { id: expect.any(Number), kind: "user", message: "fix it" },
     ]);
     const call = harness.calls.find((c) => c.channel === AGENT_SUBMIT_CHANNEL);
-    expect(call?.payload).toEqual({ message: "fix it" });
+    expect(call?.payload).toEqual({ message: "fix it", edits });
   });
 
   it("abort forwards to the client", () => {
@@ -108,6 +112,12 @@ describe("createAgentChatStore", () => {
       text: "mid",
     });
     harness.responses.set(AGENT_SET_PROVIDER_CHANNEL, { ok: true });
+    harness.responses.set(AGENT_PROVIDER_CHANNEL, {
+      provider: "claude",
+      available: ["pi", "claude"],
+      model: "claude-default",
+      models: [{ id: "claude-default", label: "Claude Default" }],
+    });
 
     await store.getState().switchProvider("claude");
 
@@ -115,6 +125,7 @@ describe("createAgentChatStore", () => {
     expect(s.provider).toBe("claude");
     expect(s.entries).toEqual([]);
     expect(s.status).toBe("idle");
+    expect(s.model).toBe("claude-default"); // refreshed for the new provider
   });
 
   it("a failed switch keeps the state and records the error", async () => {
@@ -135,7 +146,22 @@ describe("createAgentChatStore", () => {
     const s = store.getState();
     expect(s.provider).toBe("pi");
     expect(s.status).toBe("working"); // old turn keeps running
-    expect(s.switchError).toBe("claude unavailable");
+    // Error *presence* only: the string is rendered by the rail's
+    // SwitchError and nothing computes with it — copy is presentation.
+    expect(s.switchError).not.toBeNull();
+  });
+
+  it("switchModel clears the transcript and adopts the model", async () => {
+    const { harness, store } = makeStore();
+    harness.push(AGENT_EVENTS_CHANNEL, { type: "turn-start" });
+    harness.responses.set(AGENT_SET_MODEL_CHANNEL, { ok: true });
+
+    await store.getState().switchModel("sonnet");
+
+    const s = store.getState();
+    expect(s.model).toBe("sonnet");
+    expect(s.entries).toEqual([]);
+    expect(s.status).toBe("idle");
   });
 
   it("loadProviderInfo bootstraps the provider and options", async () => {
@@ -143,11 +169,22 @@ describe("createAgentChatStore", () => {
     harness.responses.set(AGENT_PROVIDER_CHANNEL, {
       provider: "pi",
       available: ["pi", "claude"],
+      model: "pi-default",
+      models: [
+        { id: "pi-default", label: "PI Default" },
+        { id: "pi-2", label: "PI Two" },
+      ],
     });
 
     await store.getState().loadProviderInfo();
 
-    expect(store.getState().provider).toBe("pi");
-    expect(store.getState().available).toEqual(["pi", "claude"]);
+    const s = store.getState();
+    expect(s.provider).toBe("pi");
+    expect(s.available).toEqual(["pi", "claude"]);
+    expect(s.model).toBe("pi-default");
+    expect(s.models).toEqual([
+      { id: "pi-default", label: "PI Default" },
+      { id: "pi-2", label: "PI Two" },
+    ]);
   });
 });

@@ -6,18 +6,22 @@ import { createFailingProvider, createFakeProvider } from "./fake-provider.js";
 /**
  * Permanent suite. Consumers: the agent-chat store's subscription
  * (forwarding), its send/abort actions (the submit/abort chains), and
- * its switchProvider/loadProviderInfo actions (the swap/info chains,
- * consumed by the rail's provider dropdown).
+ * its switchProvider/switchModel/loadProviderInfo actions (the
+ * reconfigure/info chains, consumed by the rail's dropdowns).
  */
 
-async function makeService(overrides: Record<string, unknown> = {}) {
+async function makeService() {
   const pi = createFakeProvider();
   const claude = createFakeProvider();
   const events: AgentEvent[] = [];
-  const providers = { pi: pi.provider, claude: claude.provider, ...overrides };
-  const service = await AgentService.create("/ws", providers, "pi", (event) => {
-    events.push(event);
-  });
+  const service = await AgentService.create(
+    "/ws",
+    { pi: pi.provider, claude: claude.provider },
+    "pi",
+    (event) => {
+      events.push(event);
+    },
+  );
   return { pi, claude, events, service };
 }
 
@@ -36,13 +40,20 @@ describe("AgentService", () => {
     ]);
   });
 
-  it("submit passes the message to the session and reports acceptance", async () => {
+  it("submit hands a prompt string to the session and reports acceptance", async () => {
     const { pi, service } = await makeService();
 
-    const result = await service.submit({ message: "fix the bug" });
+    const result = await service.submit({
+      message: "fix the bug",
+      edits: [{ path: "/ws/a.ts", original: "old", edited: "new" }],
+    });
 
+    // The service's obligation is delegation only: SOME string reaches
+    // the session. Prompt content is unpinned — each compose-prompt
+    // experiment carries its own ephemeral tests, deleted at green.
     expect(result).toEqual({ ok: true });
-    expect(pi.sentPrompts).toEqual(["fix the bug"]);
+    expect(pi.sentPrompts).toHaveLength(1);
+    expect(typeof pi.sentPrompts[0]).toBe("string");
   });
 
   it("abort reaches the session", async () => {
@@ -53,13 +64,19 @@ describe("AgentService", () => {
     expect(pi.aborts).toBe(1);
   });
 
-  // SWAP — ephemeral until the picker consumes the chain:
-  it("reports the active provider and the registered options", async () => {
+  it("reports the active provider, its options, and the resolved model", async () => {
     const { service } = await makeService();
 
-    expect(service.getProvider()).toEqual({
+    const info = await service.getProviderInfo();
+
+    expect(info).toEqual({
       provider: "pi",
       available: ["pi", "claude"],
+      model: "fake-default",
+      models: [
+        { id: "fake-default", label: "Fake Default" },
+        { id: "fake-2", label: "Fake Two" },
+      ],
     });
   });
 
@@ -75,7 +92,8 @@ describe("AgentService", () => {
     pi.emit({ type: "assistant-delta", text: "stale" });
 
     expect(events).toEqual([{ type: "assistant-delta", text: "new" }]);
-    expect(service.getProvider().provider).toBe("claude");
+    const info = await service.getProviderInfo();
+    expect(info.provider).toBe("claude");
   });
 
   it("setProvider cancels an in-flight turn and routes new submits to the new session", async () => {
@@ -83,7 +101,7 @@ describe("AgentService", () => {
 
     pi.emit({ type: "turn-start" }); // mid-turn swap
     await service.setProvider("claude");
-    await service.submit({ message: "next" });
+    await service.submit({ message: "next", edits: [] });
 
     expect(pi.sentPrompts).toEqual([]); // old session heard nothing
     expect(claude.sentPrompts).toEqual(["next"]);
@@ -108,6 +126,40 @@ describe("AgentService", () => {
     pi.emit({ type: "assistant-delta", text: "still here" });
     expect(sinkEvents).toEqual([
       { type: "assistant-delta", text: "still here" },
+    ]);
+  });
+
+  // MODEL tests (consumed by the model combobox chain):
+  it("setModel swaps the session with the requested model and reports it", async () => {
+    const { pi, service } = await makeService();
+
+    const result = await service.setModel("fake-2");
+
+    expect(result).toEqual({ ok: true });
+    expect(pi.requestedModels).toEqual([undefined, "fake-2"]);
+    expect(pi.disposes).toBe(1);
+    expect((await service.getProviderInfo()).model).toBe("fake-2");
+  });
+
+  it("an illegitimate model fails the swap and leaves the session running", async () => {
+    const pi = createFakeProvider({ rejectModel: "bad-model" });
+    const sinkEvents: AgentEvent[] = [];
+    const service = await AgentService.create(
+      "/ws",
+      { pi: pi.provider },
+      "pi",
+      (event) => {
+        sinkEvents.push(event);
+      },
+    );
+
+    const result = await service.setModel("bad-model");
+
+    expect(result).toEqual({ ok: false, error: { code: "unavailable" } });
+    expect(pi.disposes).toBe(0);
+    pi.emit({ type: "assistant-delta", text: "unaffected" });
+    expect(sinkEvents).toEqual([
+      { type: "assistant-delta", text: "unaffected" },
     ]);
   });
 });

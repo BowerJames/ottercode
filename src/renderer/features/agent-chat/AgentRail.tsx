@@ -1,11 +1,15 @@
 import { useEffect, useRef } from "react";
+import { ComboBox } from "../../components/ComboBox";
+import { useEditor } from "../editor/use-editor";
+import { collectEdits } from "./collect-edits";
 import type { TranscriptEntry } from "./store";
 import { useAgentChat } from "./use-agent-chat";
 
 /**
  * The transcript rail: the record of the conversation, not the stage.
  * Always visible since the provider picker moved in; the entries area
- * fills as the conversation does, auto-scrolling while streaming.
+ * fills as the conversation does, auto-scrolling while streaming. Its
+ * footer hosts the include-edits gate for outgoing messages.
  */
 export function AgentRail() {
   const entries = useAgentChat((s) => s.entries);
@@ -21,7 +25,10 @@ export function AgentRail() {
     <aside className="agent-rail">
       <div className="agent-rail-header">
         <span>agent</span>
-        <ProviderPicker />
+        <div className="agent-rail-pickers">
+          <ProviderPicker />
+          <ModelPicker />
+        </div>
       </div>
       <SwitchError />
       <div className="agent-rail-entries" ref={scrollRef}>
@@ -29,7 +36,33 @@ export function AgentRail() {
           <TranscriptRow key={entry.id} entry={entry} />
         ))}
       </div>
+      <AttachFooter />
     </aside>
+  );
+}
+
+/** Footer control: gates whether the next message attaches the
+ * editor's dirty copies. The label carries the count of what would
+ * ride along. Stays usable mid-turn — it only affects the next send. */
+function AttachFooter() {
+  const includeEdits = useAgentChat((s) => s.includeEdits);
+  const setIncludeEdits = useAgentChat((s) => s.setIncludeEdits);
+  const editCount = useEditor((s) => collectEdits(s.workingCopies).length);
+
+  return (
+    <footer className="agent-rail-footer">
+      <label
+        className="agent-rail-attach"
+        title="attach the editor's unsaved edits to your next message"
+      >
+        <input
+          type="checkbox"
+          checked={includeEdits}
+          onChange={(e) => setIncludeEdits(e.target.checked)}
+        />
+        include file edits{editCount > 0 ? ` (${editCount})` : ""}
+      </label>
+    </footer>
   );
 }
 
@@ -58,6 +91,24 @@ function ProviderPicker() {
         </option>
       ))}
     </select>
+  );
+}
+
+/** Model combobox: adapter-enumerated options only (nothing the
+ * provider didn't vouch for), filterable because pi lists many. */
+function ModelPicker() {
+  const model = useAgentChat((s) => s.model);
+  const models = useAgentChat((s) => s.models);
+  const switchModel = useAgentChat((s) => s.switchModel);
+
+  return (
+    <ComboBox
+      value={model}
+      options={models}
+      onChange={(id) => void switchModel(id)}
+      ariaLabel="agent model"
+      placeholder="model…"
+    />
   );
 }
 

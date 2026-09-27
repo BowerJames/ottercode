@@ -1,4 +1,4 @@
-import type { AgentEvent } from "../../shared/ipc/agent.js";
+import type { AgentEvent, AgentModelInfo } from "../../shared/ipc/agent.js";
 
 /**
  * The provider seam. Everything the agent service knows about coding
@@ -19,6 +19,11 @@ import type { AgentEvent } from "../../shared/ipc/agent.js";
  * - Tool ids are provider-opaque pairing tokens.
  * - Process model (in-process SDK vs subprocess) is invisible above
  *   this seam; dispose ends everything.
+ * - Models: listModels enumerates ONLY models this provider can
+ *   legitimately switch to (authed/configured — adapter-enumerated,
+ *   never hardcoded in the UI). createSession resolves and reports the
+ *   model actually in effect (the concrete default when none was
+ *   chosen); an illegitimate model must throw.
  */
 
 /** One conversation with one provider. */
@@ -43,6 +48,9 @@ export type AgentPermissionDecision =
 
 export type AgentSessionOptions = {
   root: string;
+  /** The model to use. Absent = the provider's default. Must be one
+   * of listModels()'s ids; anything else throws. */
+  model?: string;
   /**
    * Optional capability: providers that support permission gating
    * (Claude Code) call this before a gated tool executes; the turn
@@ -56,6 +64,18 @@ export type AgentSessionOptions = {
   ) => Promise<AgentPermissionDecision>;
 };
 
+/** A created session plus the model actually in effect. */
+export type CreatedAgentSession = {
+  session: AgentSession;
+  /** The concrete model id (resolved default when none requested). */
+  model: string;
+};
+
 export type AgentProvider = {
-  createSession(options: AgentSessionOptions): Promise<AgentSession>;
+  /** Async by nature: providers load models (pi) or spawn processes
+   * (Claude Code) before a session exists. */
+  createSession(options: AgentSessionOptions): Promise<CreatedAgentSession>;
+  /** Legitimate, switchable models for THIS provider. Absent or empty
+   * means the provider offers no model choice. */
+  listModels?(): Promise<readonly AgentModelInfo[]>;
 };

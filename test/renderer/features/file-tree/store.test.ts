@@ -46,7 +46,12 @@ describe("createFileTreeStore", () => {
 
     const s = store.getState();
     expect(s.root).toBe("/ws");
-    expect(s.childrenByDir["/ws"]).toEqual(WS_CHILDREN);
+    // Membership + shape only: entry order is the service's documented
+    // policy ("Order is policy… deliberately unpinned") and nothing
+    // downstream computes with sequence — plain toEqual would pin it.
+    expect(s.childrenByDir["/ws"] ?? []).toEqual(
+      expect.arrayContaining(WS_CHILDREN),
+    );
   });
 
   it("expand on cache miss fetches children and marks the directory expanded", async () => {

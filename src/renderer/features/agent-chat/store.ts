@@ -1,10 +1,11 @@
 import { create, type StoreApi, type UseBoundStore } from "zustand";
+import type { AgentFileEdit, AgentModelInfo } from "../../../shared/ipc/agent";
 import type { OttercodeClient } from "../../../shared/ipc/client";
 
 /** The slice of the client the agent chat depends on. */
 export type AgentChatClient = Pick<
   OttercodeClient["agent"],
-  "submit" | "abort" | "onEvent" | "provider" | "setProvider"
+  "submit" | "abort" | "onEvent" | "provider" | "setProvider" | "setModel"
 >;
 
 /** One rendered row of the transcript. Assistant entries accumulate
@@ -23,17 +24,33 @@ export type AgentChatState = {
   provider: string;
   /** The picker's options, from the service registry. */
   available: string[];
+  /** The model actually in effect (adapter-resolved at creation). */
+  model: string;
+  /** The model picker's options (adapter-enumerated, filterable). */
+  models: AgentModelInfo[];
   /** Last failed switch; null otherwise. The dropdown reverts. */
   switchError: string | null;
-  /** Appends the user entry and submits the turn. Ignored while a turn
-   * is working. Settles only after the store reflects the outcome. */
-  send(message: string): Promise<void>;
+  /** Whether the next send attaches the editor's dirty copies. The
+   * rail's footer renders and controls it; the composer consumes it
+   * at gather time. Presentation state — default on, not persisted. */
+  includeEdits: boolean;
+  /** Appends the user entry (the raw message — the rail shows what
+   * the user typed, never the composed prompt) and submits the turn
+   * with the caller-gathered edits. Ignored while a turn is working.
+   * Settles only after the store reflects the outcome. */
+  send(message: string, edits?: AgentFileEdit[]): Promise<void>;
   abort(): void;
   /** Swaps the agent provider: new session, cleared transcript.
    * Failure keeps everything — the old session keeps running. */
   switchProvider(name: string): Promise<void>;
-  /** Bootstraps provider + options from the service. */
+  /** Changes the model: new session, cleared transcript (uniform with
+   * provider swaps). Failure keeps everything. */
+  switchModel(model: string): Promise<void>;
+  /** Bootstraps provider + model info from the service. */
   loadProviderInfo(): Promise<void>;
+  /** Sets the include-edits gate. Driven by the rail footer's
+   * checkbox — takes the input's checked state, not a blind toggle. */
+  setIncludeEdits(next: boolean): void;
 };
 
 export type UseAgentChatStore = UseBoundStore<StoreApi<AgentChatState>>;
@@ -106,11 +123,14 @@ export function createAgentChatStore(
       status: "idle",
       provider: "",
       available: [],
+      model: "",
+      models: [],
       switchError: null,
+      includeEdits: true,
 
-      async send(message) {
+      async send(message, edits) {
         if (get().status === "working") return;
-        const result = await agent.submit(message);
+        const result = await agent.submit({ message, edits: edits ?? [] });
         if (result.ok) {
           set((s) => ({
             entries: [...s.entries, { id: id(), kind: "user", message }],
@@ -133,14 +153,38 @@ export function createAgentChatStore(
             status: "idle",
             switchError: null,
           });
+          await get().loadProviderInfo(); // refresh model + options
         } else {
           set({ switchError: `${name} unavailable` });
         }
       },
 
+      async switchModel(model) {
+        const result = await agent.setModel(model);
+        if (result.ok) {
+          set({
+            model,
+            entries: [],
+            status: "idle",
+            switchError: null,
+          });
+        } else {
+          set({ switchError: `${model} unavailable` });
+        }
+      },
+
       async loadProviderInfo() {
         const info = await agent.provider();
-        set({ provider: info.provider, available: info.available });
+        set({
+          provider: info.provider,
+          available: info.available,
+          model: info.model,
+          models: info.models,
+        });
+      },
+
+      setIncludeEdits(next) {
+        set({ includeEdits: next });
       },
     };
   });

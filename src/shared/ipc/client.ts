@@ -1,15 +1,17 @@
 import type {
   AgentEvent,
   AgentProviderInfo,
+  AgentReconfigResult,
   AgentSubmitRequest,
   AgentSubmitResult,
+  SetModelRequest,
   SetProviderRequest,
-  SetProviderResult,
 } from "./agent.js";
 import {
   AGENT_ABORT_CHANNEL,
   AGENT_EVENTS_CHANNEL,
   AGENT_PROVIDER_CHANNEL,
+  AGENT_SET_MODEL_CHANNEL,
   AGENT_SET_PROVIDER_CHANNEL,
   AGENT_SUBMIT_CHANNEL,
   FS_LIST_CHILDREN_CHANNEL,
@@ -52,12 +54,13 @@ export interface OttercodeClient {
     readFile(path: string): Promise<ReadFileResult>;
   };
   agent: {
-    submit(message: string): Promise<AgentSubmitResult>;
+    submit(request: AgentSubmitRequest): Promise<AgentSubmitResult>;
     abort(): Promise<void>;
     /** Subscribe to the agent event stream. Returns unsubscribe. */
     onEvent(handler: (event: AgentEvent) => void): () => void;
     provider(): Promise<AgentProviderInfo>;
-    setProvider(provider: string): Promise<SetProviderResult>;
+    setProvider(provider: string): Promise<AgentReconfigResult>;
+    setModel(model: string): Promise<AgentReconfigResult>;
   };
 }
 
@@ -84,8 +87,7 @@ export function createClient(transport: ClientTransport): OttercodeClient {
       },
     },
     agent: {
-      submit(message: string) {
-        const request: AgentSubmitRequest = { message };
+      submit(request: AgentSubmitRequest) {
         return invoke(
           AGENT_SUBMIT_CHANNEL,
           request,
@@ -107,7 +109,14 @@ export function createClient(transport: ClientTransport): OttercodeClient {
         return invoke(
           AGENT_SET_PROVIDER_CHANNEL,
           request,
-        ) as Promise<SetProviderResult>;
+        ) as Promise<AgentReconfigResult>;
+      },
+      setModel(model: string) {
+        const request: SetModelRequest = { model };
+        return invoke(
+          AGENT_SET_MODEL_CHANNEL,
+          request,
+        ) as Promise<AgentReconfigResult>;
       },
     },
   };

@@ -2,13 +2,16 @@ import {
   type PermissionResult,
   query,
   type SDKMessage,
+  type SDKUserMessage,
 } from "@anthropic-ai/claude-agent-sdk";
-import type { AgentEvent } from "../../../shared/ipc/agent.js";
+import type { AgentEvent, AgentModelInfo } from "../../../shared/ipc/agent.js";
 import type {
   AgentPermissionDecision,
   AgentPermissionRequest,
   AgentProvider,
   AgentSessionOptions,
+  AgentSession as ContractSession,
+  CreatedAgentSession,
 } from "../provider.js";
 
 /**
@@ -30,9 +33,30 @@ import type {
  * blocks and tool_use blocks arrive one per SDK assistant message;
  * tool_result blocks close their tool-start; the result message's
  * subtype decides turn-end vs error.
+ * Models: a streaming-input bootstrap query (a spawn that never sends
+ * a message — no model call, no cost beyond CLI startup) reads the
+ * init message's resolved model and the CLI's supportedModels() list.
+ * Falls back to the CLI's stable aliases if the bootstrap fails; an
+ * EXPLICIT model choice that fails the bootstrap is an error (fail
+ * closed — illegitimate models must throw, per the seam).
  */
+let modelListCache: readonly AgentModelInfo[] | undefined;
+
 export const claudeProvider: AgentProvider = {
-  async createSession({ root, requestPermission }: AgentSessionOptions) {
+  async createSession({
+    root,
+    model,
+    requestPermission,
+  }: AgentSessionOptions): Promise<CreatedAgentSession> {
+    const boot = await claudeBootstrap(root, model).catch((error: unknown) => {
+      if (model !== undefined) throw error;
+      return null;
+    });
+    if (boot !== null) {
+      modelListCache = boot.models;
+    }
+    const resolvedModel = boot?.model ?? model ?? "claude-default";
+
     let handler: ((event: AgentEvent) => void) | undefined;
     let sessionId: string | undefined;
     let controller: AbortController | undefined;
@@ -47,6 +71,7 @@ export const claudeProvider: AgentProvider = {
           prompt,
           options: {
             cwd: root,
+            model,
             permissionMode: "default",
             ...(requestPermission !== undefined
               ? { canUseTool: makeCanUseTool(requestPermission) }
@@ -79,25 +104,95 @@ export const claudeProvider: AgentProvider = {
     };
 
     return {
-      send(prompt) {
-        if (busy) return;
-        busy = true;
-        void runTurn(prompt).finally(() => {
-          busy = false;
-        });
-      },
-      abort() {
-        controller?.abort();
-      },
-      onEvent(h) {
-        handler = h;
-      },
-      dispose() {
-        controller?.abort(); // cancels any in-flight turn; process exits
-      },
+      session: {
+        send(prompt) {
+          if (busy) return;
+          busy = true;
+          void runTurn(prompt).finally(() => {
+            busy = false;
+          });
+        },
+        abort() {
+          controller?.abort();
+        },
+        onEvent(h) {
+          handler = h;
+        },
+        dispose() {
+          controller?.abort(); // cancels any in-flight turn; process exits
+        },
+      } satisfies ContractSession,
+      model: resolvedModel,
     };
   },
+
+  async listModels(): Promise<readonly AgentModelInfo[]> {
+    if (modelListCache !== undefined) return modelListCache;
+    const boot = await claudeBootstrap(process.cwd(), undefined);
+    modelListCache = boot.models;
+    return modelListCache;
+  },
 };
+
+/** Fallback when the bootstrap fails and no model was requested: the
+ * CLI's stable aliases (legitimate switch targets per the SDK). */
+const ALIAS_MODELS: readonly AgentModelInfo[] = [
+  { id: "sonnet", label: "Sonnet (alias)" },
+  { id: "opus", label: "Opus (alias)" },
+  { id: "haiku", label: "Haiku (alias)" },
+];
+
+/** Spawns a streaming-input query that never sends a message: the CLI
+ * emits system/init (carrying the resolved model), answers control
+ * requests (supportedModels), and is torn down without any model
+ * call. Control methods require streaming input — hence the gate. */
+async function claudeBootstrap(
+  root: string,
+  model: string | undefined,
+): Promise<{ model: string; models: readonly AgentModelInfo[] }> {
+  const controller = new AbortController();
+  let release: () => void = () => {};
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  // biome-ignore lint/correctness/useYield: deliberately yield-free — the generator's only job is to hold the stream open until released.
+  async function* heldOpenInput(): AsyncGenerator<SDKUserMessage> {
+    await gate; // never yields — holds the session at "awaiting input"
+  }
+  try {
+    const stream = query({
+      prompt: heldOpenInput(),
+      options: {
+        cwd: root,
+        ...(model !== undefined ? { model } : {}),
+        abortController: controller,
+      },
+    });
+    const first = await stream.next();
+    const init = first.done ? undefined : first.value;
+    let initModel: string | undefined;
+    if (
+      init !== undefined &&
+      init.type === "system" &&
+      init.subtype === "init"
+    ) {
+      initModel = init.model;
+    }
+    const supported = await stream.supportedModels();
+    return {
+      model: initModel ?? model ?? "claude-default",
+      models: supported.map((m) => ({ id: m.value, label: m.displayName })),
+    };
+  } catch (error) {
+    if (model === undefined) {
+      return { model: "claude-default", models: ALIAS_MODELS };
+    }
+    throw error;
+  } finally {
+    release();
+    controller.abort();
+  }
+}
 
 /** Emits contract events for one SDK message; returns the running
  * result subtype (set when the result message arrives). */
