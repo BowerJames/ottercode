@@ -9,6 +9,7 @@ import {
 import { useEffect, useRef, useState } from "react";
 import type { FsErrorCode } from "../../../shared/ipc/fs";
 import { useFileTree } from "../file-tree/use-file-tree";
+import { languageFor } from "./language";
 import { SelectionMenu } from "./SelectionMenu";
 import {
   type SelectionMenuRequest,
@@ -170,6 +171,9 @@ function EditorDocument({
       doc: initialDoc,
       extensions: [
         lineNumbers(),
+        // Grammar, indent, and colors chosen from the path — unknown
+        // types contribute nothing and stay plain text.
+        ...languageFor(path),
         history(),
         keymap.of([...defaultKeymap, ...historyKeymap]),
         // Draws the caret and selection ourselves: the native caret is
