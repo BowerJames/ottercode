@@ -3,6 +3,7 @@ import type { AgentThinkingLevel } from "../../../shared/ipc/agent";
 import { ComboBox } from "../../components/ComboBox";
 import { useEditor } from "../editor/use-editor";
 import { collectEdits } from "./collect-edits";
+import { Markdown } from "./Markdown";
 import type { TranscriptEntry } from "./store";
 import { useAgentChat } from "./use-agent-chat";
 
@@ -10,9 +11,11 @@ import { useAgentChat } from "./use-agent-chat";
  * The transcript rail: the record of the conversation, not the stage.
  * Always visible since the provider picker moved in; the entries area
  * fills as the conversation does, auto-scrolling while streaming. Its
- * footer hosts the include-edits gate and the new-chat button.
+ * footer hosts the include-edits gate and the new-chat button. The
+ * shell owns the rail's width (it resizes at the shell's seam) — the
+ * width arrives as a prop, never from CSS or a store.
  */
-export function AgentRail() {
+export function AgentRail({ width }: { width: number }) {
   const entries = useAgentChat((s) => s.entries);
   const scrollRef = useRef<HTMLDivElement | null>(null);
 
@@ -23,7 +26,7 @@ export function AgentRail() {
   }, [entries]);
 
   return (
-    <aside className="agent-rail">
+    <aside className="agent-rail" style={{ width }}>
       <div className="agent-rail-header">
         <span>agent</span>
         <div className="agent-rail-pickers">
@@ -189,11 +192,33 @@ function SwitchError() {
   return <div className="chat-entry chat-error">{switchError}</div>;
 }
 
+/** One row of the transcript. Assistant text renders as markdown
+ * (Markdown's module owns that policy). User and assistant messages
+ * double-click into the editor as a read-only snapshot — the key is
+ * the entry id, so reopening refreshes rather than duplicates. */
 function TranscriptRow({ entry }: { entry: TranscriptEntry }) {
+  const openVirtual = useEditor((s) => s.openVirtual);
+
+  const openInEditor = (text: string) => {
+    openVirtual({
+      key: `virtual:chat/${entry.id}`,
+      title:
+        entry.kind === "assistant"
+          ? `agent message #${entry.id}`
+          : `your message #${entry.id}`,
+      text,
+    });
+  };
+
   switch (entry.kind) {
     case "user":
       return (
-        <div className="chat-entry chat-user">
+        // biome-ignore lint/a11y/noStaticElementInteractions: a pointer-only affordance by design — double-click opens the message; word-selection via double-click is traded away deliberately.
+        <div
+          className="chat-entry chat-user"
+          title="double-click to open this message in the editor"
+          onDoubleClick={() => openInEditor(entry.message)}
+        >
           {/* Attachment-only turn: the composer sends edits/tracked runs
               with no message — show a marker, not an empty bubble. */}
           {entry.message.length > 0
@@ -210,7 +235,16 @@ function TranscriptRow({ entry }: { entry: TranscriptEntry }) {
         </div>
       );
     case "assistant":
-      return <div className="chat-entry chat-assistant">{entry.text}</div>;
+      return (
+        // biome-ignore lint/a11y/noStaticElementInteractions: a pointer-only affordance by design — double-click opens the message; word-selection via double-click is traded away deliberately.
+        <div
+          className="chat-entry chat-assistant"
+          title="double-click to open this message in the editor"
+          onDoubleClick={() => openInEditor(entry.text)}
+        >
+          <Markdown text={entry.text} />
+        </div>
+      );
     case "tool":
       return <div className="chat-entry chat-tool">tool: {entry.name}</div>;
     case "error":

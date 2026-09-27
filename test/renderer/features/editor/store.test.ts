@@ -99,3 +99,87 @@ describe("createEditorStore", () => {
     expect(store.getState().activePath).toBeNull(); // untouched
   });
 });
+
+// VIRTUAL DOCUMENTS (consumed by the agent rail's double-click: a
+// message opens as a read-only snapshot). The record's separation
+// from workingCopies is the load-bearing wall: collectEdits gathers
+// dirty working copies into agent:submit, and a synthetic key
+// crossing that contract would reach main's disk writer.
+describe("createEditorStore — virtual documents", () => {
+  it("openVirtual activates a snapshot without touching the fs", () => {
+    const { harness, store } = makeStore();
+
+    store.getState().openVirtual({
+      key: "virtual:chat/7",
+      title: "agent message #7",
+      text: "# hello",
+    });
+
+    const s = store.getState();
+    expect(s.activePath).toBe("virtual:chat/7");
+    expect(s.virtualDocs["virtual:chat/7"]).toEqual({
+      title: "agent message #7",
+      text: "# hello",
+      revision: 0,
+    });
+    // Never a file copy, never an fs read — a virtual doc has no disk
+    // counterpart by definition.
+    expect(s.workingCopies).toEqual({});
+    expect(harness.calls).toEqual([]);
+  });
+
+  it("reopening the same key refreshes the snapshot and focuses — no duplicate", () => {
+    const { store } = makeStore();
+    store.getState().openVirtual({
+      key: "virtual:chat/7",
+      title: "agent message #7",
+      text: "partial",
+    });
+
+    // The message kept streaming after the first open — the reopen
+    // captures the longer text, not a second document.
+    store.getState().openVirtual({
+      key: "virtual:chat/7",
+      title: "agent message #7",
+      text: "partial, now complete",
+    });
+
+    expect(Object.keys(store.getState().virtualDocs)).toEqual([
+      "virtual:chat/7",
+    ]);
+    expect(store.getState().virtualDocs["virtual:chat/7"]?.text).toBe(
+      "partial, now complete",
+    );
+    // The remount signal moved with the text — EditorPane's document
+    // key consumes it, so the surface rebuilds from the new snapshot.
+    expect(store.getState().virtualDocs["virtual:chat/7"]?.revision).toBe(1);
+
+    // Reopening with UNCHANGED text bumps nothing: a refocus keeps
+    // the surface (and its scroll position) standing.
+    store.getState().openVirtual({
+      key: "virtual:chat/7",
+      title: "agent message #7",
+      text: "partial, now complete",
+    });
+    expect(store.getState().virtualDocs["virtual:chat/7"]?.revision).toBe(1);
+  });
+
+  it("edit is a no-op for virtual keys — snapshots cannot become file edits", () => {
+    const { store } = makeStore();
+    store.getState().openVirtual({
+      key: "virtual:chat/7",
+      title: "agent message #7",
+      text: "snapshot",
+    });
+
+    store.getState().edit("virtual:chat/7", "tampered");
+
+    // The guard chain: edit never creates a working copy, so the doc
+    // can never be dirty, so collectEdits can never attach it to a
+    // turn. If this pin breaks, a synthetic path rides agent:submit.
+    expect(store.getState().virtualDocs["virtual:chat/7"]?.text).toBe(
+      "snapshot",
+    );
+    expect(store.getState().workingCopies).toEqual({});
+  });
+});

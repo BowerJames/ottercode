@@ -1,4 +1,6 @@
 import { useEffect, useRef, useState } from "react";
+import { usePanelSize } from "../../app/use-panel-size";
+import { Splitter } from "../../components/Splitter";
 import type { TerminalRunView } from "./store";
 import { useTerminal } from "./use-terminal";
 
@@ -8,15 +10,31 @@ import { useTerminal } from "./use-terminal";
  * opening and closing live here, nowhere else. The dock is
  * deliberately persistent: runs starting or finishing never close
  * it, and its history survives agent turns and new chats (the
- * terminal is a workspace surface, not a conversation one).
+ * terminal is a workspace surface, not a conversation one). When
+ * open, the dock owns its height: the splitter along its top edge
+ * drags it taller (anchored at the bottom — drag up to grow).
  */
 export function TerminalDock() {
   const open = useTerminal((s) => s.open);
   const running = useTerminal((s) => s.running);
   const toggle = useTerminal((s) => s.toggle);
+  const panel = usePanelSize({
+    axis: "y",
+    min: 120,
+    max: 600,
+    initial: 240,
+    invert: true, // anchored at the bottom: drag up to grow
+  });
 
   return (
     <section className="terminal-dock">
+      {open ? (
+        <Splitter
+          axis="y"
+          title="drag to resize — double-click to reset"
+          {...panel.handleProps}
+        />
+      ) : null}
       <button
         type="button"
         className="terminal-strip"
@@ -30,7 +48,11 @@ export function TerminalDock() {
           </span>
         ) : null}
       </button>
-      {open ? <TerminalBody /> : null}
+      {open ? (
+        <div className="terminal-body" style={{ height: panel.size }}>
+          <TerminalBody />
+        </div>
+      ) : null}
     </section>
   );
 }

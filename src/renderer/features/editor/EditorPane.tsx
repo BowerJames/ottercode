@@ -1,4 +1,5 @@
 import { defaultKeymap, history, historyKeymap } from "@codemirror/commands";
+import { EditorState } from "@codemirror/state";
 import {
   EditorView as CodeMirrorView,
   drawSelection,
@@ -50,6 +51,9 @@ export function EditorPane() {
   const workingCopy = useEditor((s) =>
     s.activePath === null ? undefined : s.workingCopies[s.activePath],
   );
+  const virtualDoc = useEditor((s) =>
+    s.activePath === null ? undefined : s.virtualDocs[s.activePath],
+  );
   const openError = useEditor((s) => s.openError);
   const reset = useEditor((s) => s.reset);
 
@@ -60,33 +64,46 @@ export function EditorPane() {
 
   return (
     <section className="editor-pane">
-      {activePath !== null && workingCopy !== undefined && (
-        <div className="editor-header">
-          <span className="editor-file-name">{basename(activePath)}</span>
-          {dirty && (
-            <span
-              className="editor-dirty-dot"
-              title="Differs from disk — edits live in memory only"
-            >
-              ●
+      {(workingCopy !== undefined || virtualDoc !== undefined) &&
+        activePath !== null && (
+          <div className="editor-header">
+            <span className="editor-file-name">
+              {virtualDoc !== undefined
+                ? virtualDoc.title
+                : basename(activePath)}
             </span>
-          )}
-          {/* Rendered only while dirty, like the dot it answers. Reset is
+            {virtualDoc !== undefined && (
+              <span
+                className="editor-virtual-tag"
+                title="read-only — a snapshot, not a file on disk"
+              >
+                read-only
+              </span>
+            )}
+            {dirty && (
+              <span
+                className="editor-dirty-dot"
+                title="Differs from disk — edits live in memory only"
+              >
+                ●
+              </span>
+            )}
+            {/* Rendered only while dirty, like the dot it answers. Reset is
               the store's remount signal: the key below rebuilds the
               surface from the restored snapshot. Undo history drops —
               reset means discard, not another edit. */}
-          {dirty && (
-            <button
-              type="button"
-              className="editor-revert"
-              title="discard your edits — restore the content as loaded"
-              onClick={() => reset(activePath)}
-            >
-              revert
-            </button>
-          )}
-        </div>
-      )}
+            {dirty && (
+              <button
+                type="button"
+                className="editor-revert"
+                title="discard your edits — restore the content as loaded"
+                onClick={() => reset(activePath)}
+              >
+                revert
+              </button>
+            )}
+          </div>
+        )}
       {showError && openError !== null && (
         <div className="editor-error">{ERROR_MESSAGES[openError.code]}</div>
       )}
@@ -97,6 +114,18 @@ export function EditorPane() {
           key={`${activePath}:${workingCopy.revision}`}
           path={activePath}
           initial={workingCopy.content}
+        />
+      ) : activePath !== null && virtualDoc !== undefined ? (
+        // Virtual docs: a read-only surface over the snapshot. No
+        // selection menu — its request carries the path across the
+        // IPC contract, and a synthetic key must never cross.
+        <EditorDocument
+          // Same remount contract as working copies: key:revision —
+          // a refreshed snapshot rebuilds the surface.
+          key={`${activePath}:${virtualDoc.revision}`}
+          path={activePath}
+          initial={virtualDoc.text}
+          readonly
         />
       ) : (
         <div className="editor-empty">Select a file to view and edit it</div>
@@ -114,7 +143,15 @@ export function EditorPane() {
  * (the open/close decision lives in selection-request); an empty
  * selection falls through to native behavior.
  */
-function EditorDocument({ path, initial }: { path: string; initial: string }) {
+function EditorDocument({
+  path,
+  initial,
+  readonly = false,
+}: {
+  path: string;
+  initial: string;
+  readonly?: boolean;
+}) {
   const hostRef = useRef<HTMLDivElement | null>(null);
   const viewRef = useRef<CodeMirrorView | null>(null);
   const [menuRequest, setMenuRequest] = useState<SelectionMenuRequest | null>(
@@ -138,12 +175,19 @@ function EditorDocument({ path, initial }: { path: string; initial: string }) {
         // Draws the caret and selection ourselves: the native caret is
         // black and hairline-thin — invisible on the dark background.
         drawSelection(),
+        // Virtual documents are reading surfaces: selection and copy
+        // work, editing does not.
+        ...(readonly ? [EditorState.readOnly.of(true)] : []),
         editorTheme,
-        CodeMirrorView.updateListener.of((update) => {
-          if (update.docChanged) {
-            edit(path, update.state.doc.toString());
-          }
-        }),
+        ...(!readonly
+          ? [
+              CodeMirrorView.updateListener.of((update) => {
+                if (update.docChanged) {
+                  edit(path, update.state.doc.toString());
+                }
+              }),
+            ]
+          : []),
       ],
     });
     viewRef.current = view;
@@ -151,7 +195,7 @@ function EditorDocument({ path, initial }: { path: string; initial: string }) {
       view.destroy();
       viewRef.current = null;
     };
-  }, [edit, initialDoc, path]);
+  }, [edit, initialDoc, path, readonly]);
 
   return (
     <>
@@ -159,20 +203,24 @@ function EditorDocument({ path, initial }: { path: string; initial: string }) {
       <div
         ref={hostRef}
         className="editor-host"
-        onContextMenu={(e) => {
-          const view = viewRef.current;
-          if (view === null) return;
-          const main = view.state.selection.main;
-          const request = selectionMenuRequest(
-            path,
-            main,
-            view.state.sliceDoc(main.from, main.to),
-            { x: e.clientX, y: e.clientY },
-          );
-          if (request === null) return; // empty selection: native path
-          e.preventDefault();
-          setMenuRequest(request);
-        }}
+        onContextMenu={
+          readonly
+            ? undefined
+            : (e) => {
+                const view = viewRef.current;
+                if (view === null) return;
+                const main = view.state.selection.main;
+                const request = selectionMenuRequest(
+                  path,
+                  main,
+                  view.state.sliceDoc(main.from, main.to),
+                  { x: e.clientX, y: e.clientY },
+                );
+                if (request === null) return; // empty selection: native path
+                e.preventDefault();
+                setMenuRequest(request);
+              }
+        }
       />
       {menuRequest !== null && (
         <SelectionMenu

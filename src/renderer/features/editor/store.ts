@@ -24,9 +24,33 @@ export type WorkingCopy = {
 /** Last failed open, for the error surface. */
 export type OpenError = { path: string; code: FsErrorCode };
 
+/** An in-memory read-only document with no disk counterpart — e.g. a
+ * chat message opened for comfortable reading. Kept in its own record
+ * (`virtualDocs`), never in `workingCopies`: every file flow (dirty
+ * marking, edit attachment, reset) iterates `workingCopies` only, so
+ * a virtual doc STRUCTURALLY cannot leak into them — most importantly
+ * into collectEdits, whose output crosses the IPC contract into
+ * main's disk writes. A synthetic key must never ride `agent:submit`. */
+export type VirtualDoc = {
+  /** Display title — synthetic keys are ugly on purpose. */
+  title: string;
+  /** Snapshot at open time; refreshed only by reopening. */
+  text: string;
+  /** Bumped only by a reopening that CHANGED the text — the
+   * editor's remount signal, same contract as WorkingCopy.revision:
+   * the document key is key:revision, so a refresh rebuilds the
+   * surface from the new snapshot. */
+  revision: number;
+};
+
 export type EditorState = {
   workingCopies: Record<string, WorkingCopy>;
-  /** The document currently displayed. */
+  /** Read-only, disk-less documents, keyed synthetically (e.g.
+   * `virtual:chat/7`). Keys are constructed by the opener; the fs
+   * tree can never produce one, so the two records can't collide. */
+  virtualDocs: Record<string, VirtualDoc>;
+  /** The document currently displayed (a working-copy path or a
+   * virtual key — the pane checks virtualDocs first). */
   activePath: string | null;
   /** Null after any successful open. */
   openError: OpenError | null;
@@ -38,6 +62,14 @@ export type EditorState = {
    * store reflects the outcome.
    */
   open(path: string): Promise<void>;
+  /** Opens a virtual document and makes it active. No fs read, no
+   * error mode. Snapshot semantics: the text is captured at open —
+   * reopening the same key REFRESHES the snapshot (a message may have
+   * grown since), bumps the revision when the text changed, and
+   * focuses; it never duplicates. Virtual documents are read-only:
+   * `edit` is a no-op for their keys, so they can never become dirty
+   * and never ride along on a turn. */
+  openVirtual(doc: { key: string; title: string; text: string }): void;
   /** Replaces the in-memory content of an open working copy. */
   edit(path: string, content: string): void;
   /** Restores the load-time snapshot: content := original, revision
@@ -60,8 +92,33 @@ export type UseEditorStore = UseBoundStore<StoreApi<EditorState>>;
 export function createEditorStore(fs: EditorFs): UseEditorStore {
   return create<EditorState>()((set, get) => ({
     workingCopies: {},
+    virtualDocs: {},
     activePath: null,
     openError: null,
+
+    openVirtual(doc) {
+      set((s) => {
+        const existing = s.virtualDocs[doc.key];
+        return {
+          virtualDocs: {
+            ...s.virtualDocs,
+            [doc.key]: {
+              title: doc.title,
+              text: doc.text,
+              // Remount only when the snapshot actually moved — a
+              // refocus of the same text keeps the surface (and its
+              // scroll position) standing.
+              revision:
+                existing !== undefined && existing.text !== doc.text
+                  ? existing.revision + 1
+                  : (existing?.revision ?? 0),
+            },
+          },
+          activePath: doc.key,
+          openError: null,
+        };
+      });
+    },
 
     async open(path) {
       const existing = get().workingCopies[path];
