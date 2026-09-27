@@ -124,29 +124,41 @@ function EditorDocument({ path, initial }: { path: string; initial: string }) {
   return <div ref={hostRef} className="editor-host" />;
 }
 
-const editorTheme = CodeMirrorView.theme({
-  "&": {
-    height: "100%",
-    backgroundColor: "transparent",
-    color: "#d4d4d4",
-    fontSize: "13px",
+const editorTheme = CodeMirrorView.theme(
+  {
+    "&": {
+      height: "100%",
+      backgroundColor: "transparent",
+      color: "#d4d4d4",
+      fontSize: "13px",
+    },
+    ".cm-scroller": {
+      fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace",
+      lineHeight: "1.5",
+    },
+    ".cm-gutters": {
+      backgroundColor: "transparent",
+      color: "#6a6a6a",
+      border: "none",
+    },
+    ".cm-activeLine": { backgroundColor: "rgba(255,255,255,0.04)" },
+    ".cm-activeLineGutter": { backgroundColor: "rgba(255,255,255,0.06)" },
+    ".cm-cursor": { borderLeft: "2px solid #ffffff" },
+    ".cm-selectionBackground": { backgroundColor: "rgba(79, 124, 196, 0.35)" },
+    // Selection only happens while focused, and drawSelection's base
+    // theme styles that band with a five-class selector (default
+    // #d7d4f0 — light lavender, near-invisible under light text). The
+    // theme class prepended to this selector makes it one deeper, so
+    // the accent wins where it matters.
+    "&.cm-focused > .cm-scroller > .cm-selectionLayer .cm-selectionBackground":
+      {
+        backgroundColor: "rgba(79, 124, 196, 0.55)",
+      },
   },
-  ".cm-scroller": {
-    fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace",
-    lineHeight: "1.5",
-  },
-  ".cm-gutters": {
-    backgroundColor: "transparent",
-    color: "#6a6a6a",
-    border: "none",
-  },
-  ".cm-activeLine": { backgroundColor: "rgba(255,255,255,0.04)" },
-  ".cm-activeLineGutter": { backgroundColor: "rgba(255,255,255,0.06)" },
-  ".cm-cursor": { borderLeft: "2px solid #ffffff" },
-  ".cm-selectionBackground": {
-    backgroundColor: "rgba(79, 124, 196, 0.45)",
-  },
-});
+  // Declares the UI dark: the base theme flips to dark defaults, so
+  // any selection state we fail to style stays readable on its own.
+  { dark: true },
+);
 
 function basename(path: string): string {
   return path.split(/[\\/]/).filter(Boolean).at(-1) ?? path;
