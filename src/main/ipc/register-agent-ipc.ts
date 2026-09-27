@@ -9,6 +9,7 @@ import type {
 } from "../../shared/ipc/agent.js";
 import {
   AGENT_ABORT_CHANNEL,
+  AGENT_NEW_CHAT_CHANNEL,
   AGENT_PROVIDER_CHANNEL,
   AGENT_SET_MODEL_CHANNEL,
   AGENT_SET_PROVIDER_CHANNEL,
@@ -45,5 +46,10 @@ export function registerAgentIpc(service: AgentService): void {
     AGENT_SET_MODEL_CHANNEL,
     (_event, request: SetModelRequest): Promise<AgentReconfigResult> =>
       service.setModel(request.model),
+  );
+
+  ipcMain.handle(
+    AGENT_NEW_CHAT_CHANNEL,
+    (): Promise<AgentReconfigResult> => service.newChat(),
   );
 }

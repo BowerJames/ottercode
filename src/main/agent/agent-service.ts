@@ -34,9 +34,11 @@ const autoAllow = async (): Promise<AgentPermissionDecision> => ({
 /**
  * Owns the agent session(s): creation, submission (message plus the
  * user's in-editor edits, composed into a prompt by compose-prompt),
- * event forwarding, abort, and provider swapping. Swapping creates the new session FIRST
- * (a failed switch leaves the old one running), then cancels the old —
- * an in-flight turn ends without a terminator event (see AgentEvent).
+ * event forwarding, abort, and session replacement — provider swaps,
+ * model changes, and new chats all flow through the same swap path.
+ * Swapping creates the new session FIRST (a failed switch leaves the
+ * old one running), then cancels the old — an in-flight turn ends
+ * without a terminator event (see AgentEvent).
  */
 export class AgentService {
   private readonly root: string;
@@ -130,10 +132,21 @@ export class AgentService {
     return this.swapSession(this.activeName, model);
   }
 
-  /** The one swap path (the landmine lives exactly once): create the
-   * new session FIRST — a failed reconfiguration leaves the old one
-   * running — then cancel the old. An in-flight turn ends WITHOUT a
-   * terminator event (see the AgentEvent bracket clause). */
+  /** Starts a new chat: a fresh session from the SAME provider with
+   * the SAME active model — pickers' state stays valid, so callers
+   * need no info refetch. Mid-turn, the in-flight turn is cancelled
+   * without a terminator (swap clause): callers reset on this
+   * response, not on events. */
+  async newChat(): Promise<AgentReconfigResult> {
+    return this.swapSession(this.activeName, this.activeModel);
+  }
+
+  /** The one replacement path (the landmine lives exactly once):
+   * session replacement — provider swap, model change, or new chat.
+   * Create the new session FIRST — a failed reconfiguration leaves
+   * the old one running — then cancel the old. An in-flight turn
+   * ends WITHOUT a terminator event (see the AgentEvent bracket
+   * clause). */
   private async swapSession(
     providerName: string,
     model: string | undefined,

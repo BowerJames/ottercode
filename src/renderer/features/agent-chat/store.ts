@@ -5,7 +5,13 @@ import type { OttercodeClient } from "../../../shared/ipc/client";
 /** The slice of the client the agent chat depends on. */
 export type AgentChatClient = Pick<
   OttercodeClient["agent"],
-  "submit" | "abort" | "onEvent" | "provider" | "setProvider" | "setModel"
+  | "submit"
+  | "abort"
+  | "onEvent"
+  | "provider"
+  | "setProvider"
+  | "setModel"
+  | "newChat"
 >;
 
 /** One rendered row of the transcript. Assistant entries accumulate
@@ -46,6 +52,10 @@ export type AgentChatState = {
   /** Changes the model: new session, cleared transcript (uniform with
    * provider swaps). Failure keeps everything. */
   switchModel(model: string): Promise<void>;
+  /** Starts a new chat: fresh session, cleared transcript, same
+   * provider and model (pickers keep their values — no refetch).
+   * Failure keeps everything, mid-turn included. */
+  newChat(): Promise<void>;
   /** Bootstraps provider + model info from the service. */
   loadProviderInfo(): Promise<void>;
   /** Sets the include-edits gate. Driven by the rail footer's
@@ -170,6 +180,18 @@ export function createAgentChatStore(
           });
         } else {
           set({ switchError: `${model} unavailable` });
+        }
+      },
+
+      async newChat() {
+        const result = await agent.newChat();
+        if (result.ok) {
+          // Reset comes from this response, not events (the cancelled
+          // turn emits no terminator) — same clause as the swaps.
+          // Provider/model are untouched: the service preserved them.
+          set({ entries: [], status: "idle", switchError: null });
+        } else {
+          set({ switchError: "couldn't start a new chat" });
         }
       },
 

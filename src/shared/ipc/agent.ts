@@ -59,7 +59,8 @@ export type SetProviderRequest = {
   provider: string;
 };
 
-/** Response for AGENT_SET_PROVIDER_CHANNEL and AGENT_SET_MODEL_CHANNEL. */
+/** Response for AGENT_SET_PROVIDER_CHANNEL, AGENT_SET_MODEL_CHANNEL,
+ * and AGENT_NEW_CHAT_CHANNEL — all three replace the session. */
 export type AgentReconfigResult =
   | { ok: true }
   | { ok: false; error: { code: "unavailable" } };

@@ -9,7 +9,7 @@ import { useAgentChat } from "./use-agent-chat";
  * The transcript rail: the record of the conversation, not the stage.
  * Always visible since the provider picker moved in; the entries area
  * fills as the conversation does, auto-scrolling while streaming. Its
- * footer hosts the include-edits gate for outgoing messages.
+ * footer hosts the include-edits gate and the new-chat button.
  */
 export function AgentRail() {
   const entries = useAgentChat((s) => s.entries);
@@ -41,12 +41,15 @@ export function AgentRail() {
   );
 }
 
-/** Footer control: gates whether the next message attaches the
- * editor's dirty copies. The label carries the count of what would
- * ride along. Stays usable mid-turn — it only affects the next send. */
+/** Footer controls: the include-edits gate for outgoing messages
+ * and the new-chat action. The label carries the count of what
+ * would ride along. Both stay usable mid-turn — the gate only
+ * affects the next send; new chat abandons the turn (the swap
+ * contract handles cancellation). */
 function AttachFooter() {
   const includeEdits = useAgentChat((s) => s.includeEdits);
   const setIncludeEdits = useAgentChat((s) => s.setIncludeEdits);
+  const newChat = useAgentChat((s) => s.newChat);
   const editCount = useEditor((s) => collectEdits(s.workingCopies).length);
 
   return (
@@ -62,6 +65,14 @@ function AttachFooter() {
         />
         include file edits{editCount > 0 ? ` (${editCount})` : ""}
       </label>
+      <button
+        type="button"
+        className="agent-rail-new-chat"
+        title="start a fresh conversation (same provider and model)"
+        onClick={() => void newChat()}
+      >
+        new chat
+      </button>
     </footer>
   );
 }

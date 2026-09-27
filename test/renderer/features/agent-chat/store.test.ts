@@ -3,6 +3,7 @@ import { createAgentChatStore } from "../../../../src/renderer/features/agent-ch
 import {
   AGENT_ABORT_CHANNEL,
   AGENT_EVENTS_CHANNEL,
+  AGENT_NEW_CHAT_CHANNEL,
   AGENT_PROVIDER_CHANNEL,
   AGENT_SET_MODEL_CHANNEL,
   AGENT_SET_PROVIDER_CHANNEL,
@@ -14,10 +15,12 @@ import { createFakeTransport } from "../../fake-transport";
 /**
  * Permanent suite. Each test names a consumer in the feature's
  * components: AgentRail renders entries (accumulation, tool rows,
- * error rows, user rows); Composer branches on status and dispatches
- * send/abort; the payload assertion pins createClient's delegation at
- * its first consumer. Deleted at review (unconsumed): the
- * send-while-working guard — the composer already disables both.
+ * error rows, user rows) and its footer button dispatches newChat
+ * (reset + preserved pickers + rendered failures); Composer branches
+ * on status and dispatches send/abort; the payload assertion pins
+ * createClient's delegation at its first consumer. Deleted at review
+ * (unconsumed): the send-while-working guard — the composer already
+ * disables both.
  */
 
 function makeStore() {
@@ -186,5 +189,74 @@ describe("createAgentChatStore", () => {
       { id: "pi-default", label: "PI Default" },
       { id: "pi-2", label: "PI Two" },
     ]);
+  });
+
+  // New-chat tests consumed by the rail's footer button: it renders
+  // against the reset (entries/status/switchError) and against the
+  // pickers, whose values must survive the fresh session.
+  it("newChat resets mid-turn, clears a stale switch error, and keeps the pickers' values", async () => {
+    const { harness, store } = makeStore();
+    harness.responses.set(AGENT_PROVIDER_CHANNEL, {
+      provider: "pi",
+      available: ["pi", "claude"],
+      model: "pi-default",
+      models: [{ id: "pi-default", label: "PI Default" }],
+    });
+    await store.getState().loadProviderInfo();
+    harness.responses.set(AGENT_SET_MODEL_CHANNEL, {
+      ok: false,
+      error: { code: "unavailable" },
+    });
+    await store.getState().switchModel("pi-2"); // primes switchError
+    harness.push(AGENT_EVENTS_CHANNEL, { type: "turn-start" });
+    harness.push(AGENT_EVENTS_CHANNEL, {
+      type: "assistant-delta",
+      text: "mid",
+    });
+    harness.responses.set(AGENT_NEW_CHAT_CHANNEL, { ok: true });
+
+    await store.getState().newChat();
+
+    const s = store.getState();
+    expect(s.entries).toEqual([]);
+    expect(s.status).toBe("idle");
+    expect(s.switchError).toBeNull(); // the stale failure vanishes
+    expect(s.provider).toBe("pi"); // pickers untouched
+    expect(s.model).toBe("pi-default");
+    // Delegation pinned at the first consumer, same as the send chain.
+    expect(
+      harness.calls.some((c) => c.channel === AGENT_NEW_CHAT_CHANNEL),
+    ).toBe(true);
+  });
+
+  it("a failed newChat keeps the state and records the error", async () => {
+    const { harness, store } = makeStore();
+    harness.responses.set(AGENT_PROVIDER_CHANNEL, {
+      provider: "pi",
+      available: ["pi", "claude"],
+      model: "pi-default",
+      models: [],
+    });
+    await store.getState().loadProviderInfo();
+    harness.push(AGENT_EVENTS_CHANNEL, { type: "turn-start" });
+    harness.push(AGENT_EVENTS_CHANNEL, {
+      type: "assistant-delta",
+      text: "mid",
+    });
+    harness.responses.set(AGENT_NEW_CHAT_CHANNEL, {
+      ok: false,
+      error: { code: "unavailable" },
+    });
+
+    await store.getState().newChat();
+
+    const s = store.getState();
+    expect(s.status).toBe("working"); // the turn is genuinely still running
+    expect(s.entries).toEqual([
+      { id: expect.any(Number), kind: "assistant", text: "mid" },
+    ]);
+    expect(s.provider).toBe("pi");
+    // Error *presence* only: rendered by SwitchError, never computed on.
+    expect(s.switchError).not.toBeNull();
   });
 });

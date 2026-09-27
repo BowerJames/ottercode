@@ -10,6 +10,7 @@ import type {
 import {
   AGENT_ABORT_CHANNEL,
   AGENT_EVENTS_CHANNEL,
+  AGENT_NEW_CHAT_CHANNEL,
   AGENT_PROVIDER_CHANNEL,
   AGENT_SET_MODEL_CHANNEL,
   AGENT_SET_PROVIDER_CHANNEL,
@@ -61,6 +62,9 @@ export interface OttercodeClient {
     provider(): Promise<AgentProviderInfo>;
     setProvider(provider: string): Promise<AgentReconfigResult>;
     setModel(model: string): Promise<AgentReconfigResult>;
+    /** Replace the session with a fresh one (same provider + model).
+     * The response — not events — is the reset signal for consumers. */
+    newChat(): Promise<AgentReconfigResult>;
   };
 }
 
@@ -116,6 +120,12 @@ export function createClient(transport: ClientTransport): OttercodeClient {
         return invoke(
           AGENT_SET_MODEL_CHANNEL,
           request,
+        ) as Promise<AgentReconfigResult>;
+      },
+      newChat() {
+        return invoke(
+          AGENT_NEW_CHAT_CHANNEL,
+          {},
         ) as Promise<AgentReconfigResult>;
       },
     },

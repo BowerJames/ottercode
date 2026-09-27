@@ -30,3 +30,7 @@ export const AGENT_SET_PROVIDER_CHANNEL = "agent:setProvider";
 
 /** Request/response: change the agent model (new session). */
 export const AGENT_SET_MODEL_CHANNEL = "agent:setModel";
+
+/** Request/response: start a new chat — a fresh session with the
+ * current provider and model. */
+export const AGENT_NEW_CHAT_CHANNEL = "agent:newChat";

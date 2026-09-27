@@ -5,9 +5,12 @@ import { createFailingProvider, createFakeProvider } from "./fake-provider.js";
 
 /**
  * Permanent suite. Consumers: the agent-chat store's subscription
- * (forwarding), its send/abort actions (the submit/abort chains), and
- * its switchProvider/switchModel/loadProviderInfo actions (the
- * reconfigure/info chains, consumed by the rail's dropdowns).
+ * (forwarding), its send/abort actions (the submit/abort chains), its
+ * switchProvider/switchModel/loadProviderInfo actions (the
+ * reconfigure/info chains, consumed by the rail's dropdowns), and its
+ * newChat action (the fresh-session chain, consumed by the rail's
+ * footer button — provider/model preservation is why that action
+ * skips the info refetch).
  */
 
 async function makeService() {
@@ -154,6 +157,53 @@ describe("AgentService", () => {
     );
 
     const result = await service.setModel("bad-model");
+
+    expect(result).toEqual({ ok: false, error: { code: "unavailable" } });
+    expect(pi.disposes).toBe(0);
+    pi.emit({ type: "assistant-delta", text: "unaffected" });
+    expect(sinkEvents).toEqual([
+      { type: "assistant-delta", text: "unaffected" },
+    ]);
+  });
+
+  // NEW-CHAT tests (consumed by the store's newChat action, which
+  // relies on preservation to skip the info refetch, and on in-band
+  // failure reporting for its error branch):
+  it("newChat replaces the session preserving the provider and the active model", async () => {
+    const { pi, service } = await makeService();
+    await service.setModel("fake-2"); // the active model is now fake-2
+
+    const result = await service.newChat();
+
+    expect(result).toEqual({ ok: true });
+    // The ACTIVE model rides through — not a default re-resolution
+    // (the store's pickers stay valid without a refetch).
+    expect(pi.requestedModels).toEqual([undefined, "fake-2", "fake-2"]);
+    expect(pi.disposes).toBe(2); // the model swap, then the new chat
+    expect(await service.getProviderInfo()).toMatchObject({
+      provider: "pi",
+      model: "fake-2",
+    });
+    await service.submit({ message: "fresh", edits: [] });
+    expect(pi.sentPrompts).toEqual(["fresh"]); // routes to the new session
+  });
+
+  it("a failed newChat reports unavailable and leaves the session running", async () => {
+    // rejectModel fails exactly the SECOND createSession: the initial
+    // create passes model: undefined; newChat passes the resolved
+    // default ("fake-default").
+    const pi = createFakeProvider({ rejectModel: "fake-default" });
+    const sinkEvents: AgentEvent[] = [];
+    const service = await AgentService.create(
+      "/ws",
+      { pi: pi.provider },
+      "pi",
+      (event) => {
+        sinkEvents.push(event);
+      },
+    );
+
+    const result = await service.newChat();
 
     expect(result).toEqual({ ok: false, error: { code: "unavailable" } });
     expect(pi.disposes).toBe(0);
