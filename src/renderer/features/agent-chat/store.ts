@@ -1,5 +1,11 @@
 import { create, type StoreApi, type UseBoundStore } from "zustand";
-import type { AgentFileEdit, AgentModelInfo } from "../../../shared/ipc/agent";
+import type {
+  AgentFileEdit,
+  AgentModelInfo,
+  AgentTerminalRun,
+  AgentThinkingInfo,
+  AgentThinkingLevel,
+} from "../../../shared/ipc/agent";
 import type { OttercodeClient } from "../../../shared/ipc/client";
 
 /** The slice of the client the agent chat depends on. */
@@ -11,6 +17,7 @@ export type AgentChatClient = Pick<
   | "provider"
   | "setProvider"
   | "setModel"
+  | "setThinking"
   | "newChat"
 >;
 
@@ -34,17 +41,36 @@ export type AgentChatState = {
   model: string;
   /** The model picker's options (adapter-enumerated, filterable). */
   models: AgentModelInfo[];
+  /** The thinking picker's state — level plus the active model's
+   * offered levels. Null hides the picker (no meaningful choice).
+   * Unlike the swaps below, changing the level keeps the session —
+   * and therefore the transcript — standing. */
+  thinking: AgentThinkingInfo | null;
   /** Last failed switch; null otherwise. The dropdown reverts. */
   switchError: string | null;
   /** Whether the next send attaches the editor's dirty copies. The
    * rail's footer renders and controls it; the composer consumes it
    * at gather time. Presentation state — default on, not persisted. */
   includeEdits: boolean;
+  /** Whether terminal runs are RECORDED while on — the gate is read
+   * at run completion, so only commands that finish while checked
+   * ride along (the inverse of pi's `!!`: off IS the exclusion).
+   * Presentation state — default off, not persisted. */
+  trackTerminal: boolean;
+  /** Runs recorded while the gate was on, waiting for the next send.
+   * Drained by an accepted send — runs are events, told once (unlike
+   * edits, which re-send as current state). */
+  trackedRuns: AgentTerminalRun[];
   /** Appends the user entry (the raw message — the rail shows what
    * the user typed, never the composed prompt) and submits the turn
-   * with the caller-gathered edits. Ignored while a turn is working.
-   * Settles only after the store reflects the outcome. */
-  send(message: string, edits?: AgentFileEdit[]): Promise<void>;
+   * with the caller-gathered edits and terminal runs. Ignored while
+   * a turn is working. Settles only after the store reflects the
+   * outcome; an accepted send drains the tracked-run buffer. */
+  send(
+    message: string,
+    edits?: AgentFileEdit[],
+    terminalRuns?: AgentTerminalRun[],
+  ): Promise<void>;
   abort(): void;
   /** Swaps the agent provider: new session, cleared transcript.
    * Failure keeps everything — the old session keeps running. */
@@ -52,15 +78,28 @@ export type AgentChatState = {
   /** Changes the model: new session, cleared transcript (uniform with
    * provider swaps). Failure keeps everything. */
   switchModel(model: string): Promise<void>;
+  /** Changes the thinking level on the LIVE session — the transcript
+   * and any in-flight turn stand. Failure keeps the level and records
+   * the error (the picker reverts). */
+  switchThinking(level: AgentThinkingLevel): Promise<void>;
   /** Starts a new chat: fresh session, cleared transcript, same
    * provider and model (pickers keep their values — no refetch).
    * Failure keeps everything, mid-turn included. */
   newChat(): Promise<void>;
   /** Bootstraps provider + model info from the service. */
   loadProviderInfo(): Promise<void>;
+  /** Records one completed terminal run — appended only while the
+   * track-terminal gate is on (read at record time). Called by the
+   * composition-root wiring, never by components. */
+  recordRun(run: AgentTerminalRun): void;
+  /** Empties the tracked buffer without touching the gate — the
+   * footer's × escape hatch before an accidental send. */
+  clearTracked(): void;
   /** Sets the include-edits gate. Driven by the rail footer's
    * checkbox — takes the input's checked state, not a blind toggle. */
   setIncludeEdits(next: boolean): void;
+  /** Sets the track-terminal gate. Same driver, same contract. */
+  setTrackTerminal(next: boolean): void;
 };
 
 export type UseAgentChatStore = UseBoundStore<StoreApi<AgentChatState>>;
@@ -135,15 +174,26 @@ export function createAgentChatStore(
       available: [],
       model: "",
       models: [],
+      thinking: null,
       switchError: null,
       includeEdits: true,
+      trackTerminal: false,
+      trackedRuns: [],
 
-      async send(message, edits) {
+      async send(message, edits, terminalRuns) {
         if (get().status === "working") return;
-        const result = await agent.submit({ message, edits: edits ?? [] });
+        const runs = terminalRuns ?? [];
+        const result = await agent.submit({
+          message,
+          edits: edits ?? [],
+          terminalRuns: runs,
+        });
         if (result.ok) {
           set((s) => ({
             entries: [...s.entries, { id: id(), kind: "user", message }],
+            // Runs are events, told once: an accepted send drains the
+            // buffer. A refusal keeps them queued for the next send.
+            trackedRuns: [],
           }));
         }
       },
@@ -178,8 +228,24 @@ export function createAgentChatStore(
             status: "idle",
             switchError: null,
           });
+          // The new model may offer different thinking levels (or none) —
+          // refresh so the picker never shows stale choices.
+          await get().loadProviderInfo();
         } else {
           set({ switchError: `${model} unavailable` });
+        }
+      },
+
+      async switchThinking(level) {
+        const result = await agent.setThinking(level);
+        if (result.ok) {
+          set((s) =>
+            s.thinking === null
+              ? s
+              : { thinking: { ...s.thinking, level }, switchError: null },
+          );
+        } else {
+          set({ switchError: `thinking level ${level} unavailable` });
         }
       },
 
@@ -202,11 +268,27 @@ export function createAgentChatStore(
           available: info.available,
           model: info.model,
           models: info.models,
+          thinking: info.thinking,
         });
       },
 
       setIncludeEdits(next) {
         set({ includeEdits: next });
+      },
+
+      setTrackTerminal(next) {
+        set({ trackTerminal: next });
+      },
+
+      recordRun(run) {
+        if (!get().trackTerminal) return; // the gate is read HERE —
+        // at completion time — which is what makes "commands run
+        // while checked" true regardless of later flips.
+        set((s) => ({ trackedRuns: [...s.trackedRuns, run] }));
+      },
+
+      clearTracked() {
+        set({ trackedRuns: [] });
       },
     };
   });

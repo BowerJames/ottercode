@@ -1,17 +1,23 @@
 import type {
   AgentFileEdit,
   AgentSubmitRequest,
+  AgentTerminalRun,
 } from "../../shared/ipc/agent.js";
 
 /**
  * The prompt-composition seam: turns a submit request (message + the
- * user's edited files) into the prompt string handed to the session.
- * The one place prompt format lives — format experiments rewrite the
- * inside of this module and nothing else moves (wire, client, and
- * service are format-blind).
+ * user's edited files + the user's terminal runs) into the prompt
+ * string handed to the session. The one place prompt format lives —
+ * format experiments rewrite the inside of this module and nothing
+ * else moves (wire, client, and service are format-blind).
  *
- * v1 adapter: message first, verbatim; then each edited file as a
- * context-free +/- line diff (LCS) under a path heading. The framing
+ * v1 adapter: message first, verbatim; then terminal runs pi-style
+ * (Ran `cmd` + fenced output + exit annotations) under a framing
+ * that marks them as USER-initiated — load-bearing here because we
+ * inline runs into one prompt where pi injects them as separate
+ * user messages, and without the framing a model could mistake them
+ * for its own tool calls; then each edited file as a context-free
+ * +/- line diff (LCS) under a path heading. The edits framing
  * states the load-bearing fact that the edits exist only in the
  * user's editor — disk still has the old content — because the
  * session's read tools hit disk and would otherwise contradict the
@@ -24,18 +30,47 @@ import type {
 const MAX_DIFF_LINES = 1000;
 
 export function composePrompt(request: AgentSubmitRequest): string {
-  if (request.edits.length === 0) {
-    return request.message;
+  const sections = [request.message];
+  if (request.terminalRuns.length > 0) {
+    sections.push(
+      "",
+      "Before sending this message, the user ran these commands in the editor's terminal. The user ran them directly — they are not your tool calls:",
+    );
+    for (const run of request.terminalRuns) {
+      sections.push(...runSection(run));
+    }
   }
-  const sections = [
-    request.message,
-    "",
-    "The user has also edited these files in the editor. These edits exist only in the user's editor — the files on disk still have the old content shown as `-` lines. Treat the `+` lines as the user's current intent:",
-  ];
-  for (const edit of request.edits) {
-    sections.push(...fileSection(edit));
+  if (request.edits.length > 0) {
+    sections.push(
+      "",
+      "The user has also edited these files in the editor. These edits exist only in the user's editor — the files on disk still have the old content shown as `-` lines. Treat the `+` lines as the user's current intent:",
+    );
+    for (const edit of request.edits) {
+      sections.push(...fileSection(edit));
+    }
   }
   return sections.join("\n");
+}
+
+/** One terminal run, pi's phrasing: the command, its output fenced,
+ * and the exit facts that change how it reads. Provider-neutral
+ * wording — this text is what the model sees. */
+function runSection(run: AgentTerminalRun): string[] {
+  const section = ["", `Ran \`${run.command}\``];
+  if (run.output.length > 0) {
+    section.push("```", run.output, "```");
+  } else {
+    section.push("(no output)");
+  }
+  if (run.cancelled) {
+    section.push("", "(command cancelled)");
+  } else if (run.exitCode !== null && run.exitCode !== 0) {
+    section.push("", `Command exited with code ${run.exitCode}`);
+  }
+  if (run.truncated) {
+    section.push("", "(output truncated — the tail is shown)");
+  }
+  return section;
 }
 
 function fileSection(edit: AgentFileEdit): string[] {

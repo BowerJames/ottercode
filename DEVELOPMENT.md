@@ -46,6 +46,7 @@ src/
 ├── main/
 │   ├── agent/                 # Owns the pi AgentSession: lifecycle + event mapping
 │   ├── workspace/             # File services; the authority on disk state
+│   ├── terminal/              # The workspace terminal: one command at a time, streamed
 │   ├── ipc/                   # Glue: maps contract channels to service calls
 │   └── index.ts               # Window creation + wiring only. Stays thin.
 │

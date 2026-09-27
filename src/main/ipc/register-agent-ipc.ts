@@ -2,10 +2,12 @@ import { ipcMain } from "electron";
 import type {
   AgentProviderInfo,
   AgentReconfigResult,
+  AgentSetThinkingResult,
   AgentSubmitRequest,
   AgentSubmitResult,
   SetModelRequest,
   SetProviderRequest,
+  SetThinkingLevelRequest,
 } from "../../shared/ipc/agent.js";
 import {
   AGENT_ABORT_CHANNEL,
@@ -13,6 +15,7 @@ import {
   AGENT_PROVIDER_CHANNEL,
   AGENT_SET_MODEL_CHANNEL,
   AGENT_SET_PROVIDER_CHANNEL,
+  AGENT_SET_THINKING_CHANNEL,
   AGENT_SUBMIT_CHANNEL,
 } from "../../shared/ipc/channels.js";
 import type { AgentService } from "../agent/agent-service.js";
@@ -46,6 +49,15 @@ export function registerAgentIpc(service: AgentService): void {
     AGENT_SET_MODEL_CHANNEL,
     (_event, request: SetModelRequest): Promise<AgentReconfigResult> =>
       service.setModel(request.model),
+  );
+
+  ipcMain.handle(
+    AGENT_SET_THINKING_CHANNEL,
+    (
+      _event,
+      request: SetThinkingLevelRequest,
+    ): Promise<AgentSetThinkingResult> =>
+      service.setThinkingLevel(request.level),
   );
 
   ipcMain.handle(

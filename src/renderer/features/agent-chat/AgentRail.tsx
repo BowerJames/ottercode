@@ -1,4 +1,5 @@
 import { useEffect, useRef } from "react";
+import type { AgentThinkingLevel } from "../../../shared/ipc/agent";
 import { ComboBox } from "../../components/ComboBox";
 import { useEditor } from "../editor/use-editor";
 import { collectEdits } from "./collect-edits";
@@ -28,6 +29,7 @@ export function AgentRail() {
         <div className="agent-rail-pickers">
           <ProviderPicker />
           <ModelPicker />
+          <ThinkingPicker />
         </div>
       </div>
       <SwitchError />
@@ -41,30 +43,60 @@ export function AgentRail() {
   );
 }
 
-/** Footer controls: the include-edits gate for outgoing messages
- * and the new-chat action. The label carries the count of what
- * would ride along. Both stay usable mid-turn — the gate only
- * affects the next send; new chat abandons the turn (the swap
- * contract handles cancellation). */
+/** Footer controls: the include-edits gate, the track-terminal gate
+ * with its pending count and clear escape hatch, and the new-chat
+ * action. The labels carry counts of what would ride along. All stay
+ * usable mid-turn — the gates only affect the next send; new chat
+ * abandons the turn (the swap contract handles cancellation). */
 function AttachFooter() {
   const includeEdits = useAgentChat((s) => s.includeEdits);
   const setIncludeEdits = useAgentChat((s) => s.setIncludeEdits);
+  const trackTerminal = useAgentChat((s) => s.trackTerminal);
+  const setTrackTerminal = useAgentChat((s) => s.setTrackTerminal);
+  const trackedRuns = useAgentChat((s) => s.trackedRuns);
+  const clearTracked = useAgentChat((s) => s.clearTracked);
   const newChat = useAgentChat((s) => s.newChat);
   const editCount = useEditor((s) => collectEdits(s.workingCopies).length);
 
   return (
     <footer className="agent-rail-footer">
-      <label
-        className="agent-rail-attach"
-        title="attach the editor's unsaved edits to your next message"
-      >
-        <input
-          type="checkbox"
-          checked={includeEdits}
-          onChange={(e) => setIncludeEdits(e.target.checked)}
-        />
-        include file edits{editCount > 0 ? ` (${editCount})` : ""}
-      </label>
+      <div className="agent-rail-gates">
+        <label
+          className="agent-rail-attach"
+          title="attach the editor's unsaved edits to your next message"
+        >
+          <input
+            type="checkbox"
+            checked={includeEdits}
+            onChange={(e) => setIncludeEdits(e.target.checked)}
+          />
+          include file edits{editCount > 0 ? ` (${editCount})` : ""}
+        </label>
+        <div className="agent-rail-gate">
+          <label
+            className="agent-rail-attach"
+            title="send commands run in the terminal while this is checked with your next message"
+          >
+            <input
+              type="checkbox"
+              checked={trackTerminal}
+              onChange={(e) => setTrackTerminal(e.target.checked)}
+            />
+            track terminal
+            {trackedRuns.length > 0 ? ` (${trackedRuns.length})` : ""}
+          </label>
+          {trackedRuns.length > 0 ? (
+            <button
+              type="button"
+              className="agent-rail-clear"
+              title="discard the tracked terminal runs"
+              onClick={() => clearTracked()}
+            >
+              ×
+            </button>
+          ) : null}
+        </div>
+      </div>
       <button
         type="button"
         className="agent-rail-new-chat"
@@ -120,6 +152,34 @@ function ModelPicker() {
       ariaLabel="agent model"
       placeholder="model…"
     />
+  );
+}
+
+/** Thinking dropdown: levels the active model offers, changed live —
+ * unlike the model, swapping levels never resets the conversation.
+ * Hidden (null) when the model offers no meaningful choice. */
+function ThinkingPicker() {
+  const thinking = useAgentChat((s) => s.thinking);
+  const switchThinking = useAgentChat((s) => s.switchThinking);
+
+  if (thinking === null) return null;
+
+  return (
+    <select
+      className="provider-select thinking-select"
+      value={thinking.level}
+      aria-label="thinking level"
+      title="reasoning effort for the active model (changes take effect immediately)"
+      onChange={(e) =>
+        void switchThinking(e.target.value as AgentThinkingLevel)
+      }
+    >
+      {thinking.levels.map((level) => (
+        <option key={level} value={level}>
+          {level}
+        </option>
+      ))}
+    </select>
   );
 }
 

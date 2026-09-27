@@ -3,8 +3,10 @@ import type {
   AgentModelInfo,
   AgentProviderInfo,
   AgentReconfigResult,
+  AgentSetThinkingResult,
   AgentSubmitRequest,
   AgentSubmitResult,
+  AgentThinkingLevel,
 } from "../../shared/ipc/agent.js";
 import { composePrompt } from "./compose-prompt.js";
 import type {
@@ -38,7 +40,10 @@ const autoAllow = async (): Promise<AgentPermissionDecision> => ({
  * model changes, and new chats all flow through the same swap path.
  * Swapping creates the new session FIRST (a failed switch leaves the
  * old one running), then cancels the old — an in-flight turn ends
- * without a terminator event (see AgentEvent).
+ * without a terminator event (see AgentEvent). The thinking level is
+ * the exception to replacement: it changes live on the session, and
+ * swaps try to carry it across (dropped when the new model doesn't
+ * offer it).
  */
 export class AgentService {
   private readonly root: string;
@@ -46,6 +51,7 @@ export class AgentService {
   private readonly sink: AgentEventSink;
   private activeName: string;
   private activeModel: string;
+  private activeThinking: AgentThinkingLevel;
   private session: AgentSession;
 
   private constructor(
@@ -54,12 +60,14 @@ export class AgentService {
     initial: string,
     session: AgentSession,
     model: string,
+    thinkingLevel: AgentThinkingLevel,
     sink: AgentEventSink,
   ) {
     this.root = root;
     this.providers = providers;
     this.activeName = initial;
     this.activeModel = model;
+    this.activeThinking = thinkingLevel;
     this.session = session;
     this.sink = sink;
   }
@@ -74,7 +82,7 @@ export class AgentService {
     if (provider === undefined) {
       throw new Error(`unknown provider: ${initial}`);
     }
-    const { session, model } = await provider.createSession({
+    const { session, model, thinkingLevel } = await provider.createSession({
       root,
       requestPermission: autoAllow,
     });
@@ -84,6 +92,7 @@ export class AgentService {
       initial,
       session,
       model,
+      thinkingLevel,
       sink,
     );
     session.onEvent(sink); // forward everything, verbatim
@@ -103,21 +112,38 @@ export class AgentService {
 
   private readonly modelCache = new Map<string, readonly AgentModelInfo[]>();
 
-  async getProviderInfo(): Promise<AgentProviderInfo> {
-    const provider = this.providers[this.activeName];
+  /** The provider's models, lazily fetched and cached. Throws when the
+   * provider is unknown or enumeration fails — callers that can
+   * degrade catch and fall back. */
+  private async modelsFor(name: string): Promise<readonly AgentModelInfo[]> {
+    const provider = this.providers[name];
     if (provider === undefined) {
-      throw new Error(`unknown provider: ${this.activeName}`);
+      throw new Error(`unknown provider: ${name}`);
     }
-    let models = this.modelCache.get(this.activeName);
+    let models = this.modelCache.get(name);
     if (models === undefined) {
       models = (await provider.listModels?.()) ?? [];
-      this.modelCache.set(this.activeName, models);
+      this.modelCache.set(name, models);
     }
+    return models;
+  }
+
+  async getProviderInfo(): Promise<AgentProviderInfo> {
+    const models = [...(await this.modelsFor(this.activeName))];
+    const levels =
+      models.find((m) => m.id === this.activeModel)?.thinkingLevels ?? [];
+    // The picker renders only a real choice: ≥2 offered levels AND a
+    // session that can actually change them.
+    const thinking =
+      this.session.setThinkingLevel !== undefined && levels.length > 1
+        ? { level: this.activeThinking, levels: [...levels] }
+        : null;
     return {
       provider: this.activeName,
       available: Object.keys(this.providers),
       model: this.activeModel,
-      models: [...models],
+      models,
+      thinking,
     };
   }
 
@@ -130,6 +156,28 @@ export class AgentService {
 
   async setModel(model: string): Promise<AgentReconfigResult> {
     return this.swapSession(this.activeName, model);
+  }
+
+  /** Sets the thinking level on the LIVE session — no replacement, so
+   * the transcript and any in-flight turn stand. Validated against
+   * the active model's levels BEFORE the session is touched, so ok
+   * means the requested level took effect exactly as requested. */
+  async setThinkingLevel(
+    level: AgentThinkingLevel,
+  ): Promise<AgentSetThinkingResult> {
+    const setOnSession = this.session.setThinkingLevel;
+    if (setOnSession === undefined) {
+      return { ok: false, error: { code: "unsupported" } };
+    }
+    const levels = await this.modelsFor(this.activeName).catch(() => []);
+    const offered =
+      levels.find((m) => m.id === this.activeModel)?.thinkingLevels ?? [];
+    if (!offered.includes(level)) {
+      return { ok: false, error: { code: "unsupported" } };
+    }
+    setOnSession.call(this.session, level);
+    this.activeThinking = level;
+    return { ok: true };
   }
 
   /** Starts a new chat: a fresh session from the SAME provider with
@@ -146,7 +194,9 @@ export class AgentService {
    * Create the new session FIRST — a failed reconfiguration leaves
    * the old one running — then cancel the old. An in-flight turn
    * ends WITHOUT a terminator event (see the AgentEvent bracket
-   * clause). */
+   * clause). The user's thinking level rides across when the new
+   * session's model offers it (set live on the fresh session); a
+   * model that doesn't offer it falls back to the provider's default. */
   private async swapSession(
     providerName: string,
     model: string | undefined,
@@ -157,6 +207,7 @@ export class AgentService {
     }
     let next: AgentSession;
     let nextModel: string;
+    let nextThinking: AgentThinkingLevel;
     try {
       const created = await provider.createSession({
         root: this.root,
@@ -165,6 +216,7 @@ export class AgentService {
       });
       next = created.session;
       nextModel = created.model;
+      nextThinking = created.thinkingLevel;
     } catch {
       return { ok: false, error: { code: "unavailable" } };
     }
@@ -172,8 +224,36 @@ export class AgentService {
     this.session = next;
     this.activeName = providerName;
     this.activeModel = nextModel;
+    this.activeThinking = await this.reconcileThinking(
+      next,
+      providerName,
+      nextModel,
+      nextThinking,
+    );
     this.session.onEvent(this.sink);
     this.modelCache.delete(providerName); // refetch on next info call
     return { ok: true };
+  }
+
+  /** Carries the user's thinking level across a swap: when the fresh
+   * session came up at a different level, supports live changes, and
+   * the resolved model offers the old level, set it; otherwise the
+   * fresh session's resolved default stands. Model enumeration
+   * failing degrades to the default — never fails the swap. */
+  private async reconcileThinking(
+    session: AgentSession,
+    providerName: string,
+    resolvedModel: string,
+    resolvedLevel: AgentThinkingLevel,
+  ): Promise<AgentThinkingLevel> {
+    if (resolvedLevel === this.activeThinking) return resolvedLevel;
+    const setOnSession = session.setThinkingLevel;
+    if (setOnSession === undefined) return resolvedLevel;
+    const models = await this.modelsFor(providerName).catch(() => []);
+    const offered =
+      models.find((m) => m.id === resolvedModel)?.thinkingLevels ?? [];
+    if (!offered.includes(this.activeThinking)) return resolvedLevel;
+    setOnSession.call(session, this.activeThinking);
+    return this.activeThinking;
   }
 }

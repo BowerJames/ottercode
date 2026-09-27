@@ -2,10 +2,13 @@ import type {
   AgentEvent,
   AgentProviderInfo,
   AgentReconfigResult,
+  AgentSetThinkingResult,
   AgentSubmitRequest,
   AgentSubmitResult,
+  AgentThinkingLevel,
   SetModelRequest,
   SetProviderRequest,
+  SetThinkingLevelRequest,
 } from "./agent.js";
 import {
   AGENT_ABORT_CHANNEL,
@@ -14,10 +17,15 @@ import {
   AGENT_PROVIDER_CHANNEL,
   AGENT_SET_MODEL_CHANNEL,
   AGENT_SET_PROVIDER_CHANNEL,
+  AGENT_SET_THINKING_CHANNEL,
   AGENT_SUBMIT_CHANNEL,
   FS_LIST_CHILDREN_CHANNEL,
   FS_READ_FILE_CHANNEL,
   FS_ROOT_CHANNEL,
+  GIT_STATUS_CHANNEL,
+  TERMINAL_ABORT_CHANNEL,
+  TERMINAL_EVENTS_CHANNEL,
+  TERMINAL_RUN_CHANNEL,
 } from "./channels.js";
 import type {
   ListChildrenRequest,
@@ -26,6 +34,12 @@ import type {
   ReadFileResult,
   RootResult,
 } from "./fs.js";
+import type { GitStatusResult } from "./git.js";
+import type {
+  TerminalEvent,
+  TerminalRunRequest,
+  TerminalRunResult,
+} from "./terminal.js";
 
 /**
  * The transport seam. The real adapter is preload's ipcRenderer bridge
@@ -54,6 +68,17 @@ export interface OttercodeClient {
     listChildren(path: string): Promise<ListChildrenResult>;
     readFile(path: string): Promise<ReadFileResult>;
   };
+  git: {
+    status(): Promise<GitStatusResult>;
+  };
+  terminal: {
+    /** Run one command. Fire-and-forget — outcome arrives on events. */
+    run(command: string): Promise<TerminalRunResult>;
+    /** Kill the running command (no-op when idle). */
+    abort(): Promise<void>;
+    /** Subscribe to the terminal event stream. Returns unsubscribe. */
+    onEvent(handler: (event: TerminalEvent) => void): () => void;
+  };
   agent: {
     submit(request: AgentSubmitRequest): Promise<AgentSubmitResult>;
     abort(): Promise<void>;
@@ -62,6 +87,8 @@ export interface OttercodeClient {
     provider(): Promise<AgentProviderInfo>;
     setProvider(provider: string): Promise<AgentReconfigResult>;
     setModel(model: string): Promise<AgentReconfigResult>;
+    /** Set the thinking level live — the session is NOT replaced. */
+    setThinking(level: AgentThinkingLevel): Promise<AgentSetThinkingResult>;
     /** Replace the session with a fresh one (same provider + model).
      * The response — not events — is the reset signal for consumers. */
     newChat(): Promise<AgentReconfigResult>;
@@ -88,6 +115,28 @@ export function createClient(transport: ClientTransport): OttercodeClient {
       readFile(path: string) {
         const request: ReadFileRequest = { path };
         return invoke(FS_READ_FILE_CHANNEL, request) as Promise<ReadFileResult>;
+      },
+    },
+    git: {
+      status() {
+        return invoke(GIT_STATUS_CHANNEL, {}) as Promise<GitStatusResult>;
+      },
+    },
+    terminal: {
+      run(command: string) {
+        const request: TerminalRunRequest = { command };
+        return invoke(
+          TERMINAL_RUN_CHANNEL,
+          request,
+        ) as Promise<TerminalRunResult>;
+      },
+      abort() {
+        return invoke(TERMINAL_ABORT_CHANNEL, {}) as Promise<void>;
+      },
+      onEvent(handler) {
+        return subscribe(TERMINAL_EVENTS_CHANNEL, (payload) =>
+          handler(payload as TerminalEvent),
+        );
       },
     },
     agent: {
@@ -121,6 +170,13 @@ export function createClient(transport: ClientTransport): OttercodeClient {
           AGENT_SET_MODEL_CHANNEL,
           request,
         ) as Promise<AgentReconfigResult>;
+      },
+      setThinking(level: AgentThinkingLevel) {
+        const request: SetThinkingLevelRequest = { level };
+        return invoke(
+          AGENT_SET_THINKING_CHANNEL,
+          request,
+        ) as Promise<AgentSetThinkingResult>;
       },
       newChat() {
         return invoke(

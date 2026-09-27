@@ -28,12 +28,16 @@ export function Composer() {
     if (!canSend) return;
     const message = text.trim();
     setText("");
-    // getState, not render-time snapshots: the gate and the gather
+    // getState, not render-time snapshots: the gates and the gathers
     // must see state as of this click.
     const edits = useAgentChat.getState().includeEdits
       ? collectEdits(useEditor.getState().workingCopies)
       : [];
-    void send(message, edits);
+    // Tracked runs were gated at record time — unchecking since
+    // doesn't un-record them (they ran while checked; they still
+    // ride). The buffer drains on the accepted send.
+    const terminalRuns = useAgentChat.getState().trackedRuns;
+    void send(message, edits, terminalRuns);
   };
 
   return (

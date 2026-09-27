@@ -123,6 +123,7 @@ export const claudeProvider: AgentProvider = {
         },
       } satisfies ContractSession,
       model: resolvedModel,
+      thinkingLevel: "off", // no thinking control to resolve or report
     };
   },
 
@@ -137,9 +138,9 @@ export const claudeProvider: AgentProvider = {
 /** Fallback when the bootstrap fails and no model was requested: the
  * CLI's stable aliases (legitimate switch targets per the SDK). */
 const ALIAS_MODELS: readonly AgentModelInfo[] = [
-  { id: "sonnet", label: "Sonnet (alias)" },
-  { id: "opus", label: "Opus (alias)" },
-  { id: "haiku", label: "Haiku (alias)" },
+  { id: "sonnet", label: "Sonnet (alias)", thinkingLevels: [] },
+  { id: "opus", label: "Opus (alias)", thinkingLevels: [] },
+  { id: "haiku", label: "Haiku (alias)", thinkingLevels: [] },
 ];
 
 /** Spawns a streaming-input query that never sends a message: the CLI
@@ -181,7 +182,11 @@ async function claudeBootstrap(
     const supported = await stream.supportedModels();
     return {
       model: initModel ?? model ?? "claude-default",
-      models: supported.map((m) => ({ id: m.value, label: m.displayName })),
+      models: supported.map((m) => ({
+        id: m.value,
+        label: m.displayName,
+        thinkingLevels: [], // the CLI exposes no thinking enumeration
+      })),
     };
   } catch (error) {
     if (model === undefined) {

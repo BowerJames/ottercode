@@ -4,7 +4,11 @@ import {
   ModelRuntime,
   type AgentSession as PiSession,
 } from "@earendil-works/pi-coding-agent";
-import type { AgentEvent, AgentModelInfo } from "../../../shared/ipc/agent.js";
+import type {
+  AgentEvent,
+  AgentModelInfo,
+  AgentThinkingLevel,
+} from "../../../shared/ipc/agent.js";
 import type {
   AgentProvider,
   AgentSession,
@@ -40,6 +44,35 @@ const runtime = (): Promise<ModelRuntime> =>
 const findModel = async (rt: ModelRuntime, id: string) =>
   (await rt.getAvailable()).find((m) => m.id === id);
 
+/** The full thinking-level vocabulary, lowest to highest. */
+const ALL_THINKING_LEVELS: readonly AgentThinkingLevel[] = [
+  "off",
+  "minimal",
+  "low",
+  "medium",
+  "high",
+  "xhigh",
+  "max",
+];
+
+/** Mirrors pi-ai's getSupportedThinkingLevels (a transitive dependency
+ * we deliberately don't import): "off" is always available on
+ * non-reasoning models; a thinkingLevelMap entry of null drops that
+ * level; xhigh/max need an explicit entry; every other level defaults
+ * to supported. */
+function supportedThinkingLevels(model: {
+  reasoning: boolean;
+  thinkingLevelMap?: Record<string, string | null | undefined>;
+}): AgentThinkingLevel[] {
+  if (!model.reasoning) return ["off"];
+  return ALL_THINKING_LEVELS.filter((level) => {
+    const mapped = model.thinkingLevelMap?.[level];
+    if (mapped === null) return false;
+    if (level === "xhigh" || level === "max") return mapped !== undefined;
+    return true;
+  });
+}
+
 export const piProvider: AgentProvider = {
   async createSession({
     root,
@@ -59,13 +92,18 @@ export const piProvider: AgentProvider = {
     return {
       session: wrapPiSession(session),
       model: session.model?.id ?? resolved?.id ?? "pi-default",
+      thinkingLevel: session.thinkingLevel,
     };
   },
 
   async listModels(): Promise<readonly AgentModelInfo[]> {
     const rt = await runtime();
     const models = await rt.getAvailable();
-    return models.map((m) => ({ id: m.id, label: m.name }));
+    return models.map((m) => ({
+      id: m.id,
+      label: m.name,
+      thinkingLevels: supportedThinkingLevels(m),
+    }));
   },
 };
 
@@ -90,6 +128,11 @@ function wrapPiSession(session: PiSession): AgentSession {
     },
     abort() {
       void session.abort();
+    },
+    setThinkingLevel(level) {
+      // Live on the running session — no replacement, and the level
+      // was validated against the model's levels by the service.
+      session.setThinkingLevel(level);
     },
     onEvent(h) {
       handler = h;

@@ -1,4 +1,8 @@
-import type { AgentEvent, AgentModelInfo } from "../../shared/ipc/agent.js";
+import type {
+  AgentEvent,
+  AgentModelInfo,
+  AgentThinkingLevel,
+} from "../../shared/ipc/agent.js";
 
 /**
  * The provider seam. Everything the agent service knows about coding
@@ -21,9 +25,17 @@ import type { AgentEvent, AgentModelInfo } from "../../shared/ipc/agent.js";
  *   this seam; dispose ends everything.
  * - Models: listModels enumerates ONLY models this provider can
  *   legitimately switch to (authed/configured — adapter-enumerated,
- *   never hardcoded in the UI). createSession resolves and reports the
- *   model actually in effect (the concrete default when none was
- *   chosen); an illegitimate model must throw.
+ *   never hardcoded in the UI), each with the thinking levels it
+ *   supports. createSession resolves and reports the model actually
+ *   in effect (the concrete default when none was chosen); an
+ *   illegitimate model must throw.
+ * - Thinking: sessions that support live reasoning control expose
+ *   setThinkingLevel (optional capability — absent means the provider
+ *   offers no thinking control, and the UI hides the picker). It
+ *   never replaces the session: the transcript stands. Levels are
+ *   provider-clamped in practice, but the service validates against
+ *   the model's thinkingLevels first, so a validated level takes
+ *   effect exactly as requested.
  */
 
 /** One conversation with one provider. */
@@ -32,6 +44,9 @@ export type AgentSession = {
   abort(): void;
   onEvent(handler: (event: AgentEvent) => void): void;
   dispose(): void;
+  /** Optional capability: set the thinking level on the LIVE session
+   *   (no replacement, no transcript reset). */
+  setThinkingLevel?(level: AgentThinkingLevel): void;
 };
 
 /** A permission question from the provider: may this tool run with
@@ -69,6 +84,9 @@ export type CreatedAgentSession = {
   session: AgentSession;
   /** The concrete model id (resolved default when none requested). */
   model: string;
+  /** The thinking level actually in effect (resolved default when
+   * none requested — the adapter's default, not a contract one). */
+  thinkingLevel: AgentThinkingLevel;
 };
 
 export type AgentProvider = {

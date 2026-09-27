@@ -3,8 +3,10 @@ import { TreeRow } from "./TreeRow";
 import { useFileTree } from "./use-file-tree";
 
 /**
- * The workspace file tree: the left pane of the app. Bootstraps itself
- * on mount (loadRoot) and renders the root's children as tree rows.
+ * The workspace file tree: fills the left pane above the git bar.
+ * Bootstraps itself on mount (loadRoot) and renders the root's
+ * children as tree rows inside the pane's scroll area (the pane
+ * itself — the aside in App — owns the column layout).
  */
 export function FileTree() {
   const root = useFileTree((s) => s.root);
@@ -19,18 +21,20 @@ export function FileTree() {
 
   if (root === null) {
     return (
-      <aside className="sidebar">
+      <>
         <div className="sidebar-header">workspace</div>
         <div className="sidebar-empty">no workspace</div>
-      </aside>
+      </>
     );
   }
 
   return (
-    <aside className="sidebar">
+    <>
       <div className="sidebar-header">{rootName}</div>
-      <RootChildren root={root} />
-    </aside>
+      <div className="sidebar-tree">
+        <RootChildren root={root} />
+      </div>
+    </>
   );
 }
 

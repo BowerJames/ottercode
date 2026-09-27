@@ -21,14 +21,40 @@ export type AgentFileEdit = {
 };
 
 /**
+ * One user-run terminal command riding along on a turn: the command
+ * and its recorded outcome. Semantic payload by design — the wire
+ * never carries rendered prompt text; formatting is main's policy
+ * (compose-prompt). `output` is the run's tail under the shared
+ * truncation policy (see shared/terminal/truncate) — each run
+ * truncates individually, so one runaway command can't crowd out
+ * the rest. The truncation specifics are policy, deliberately
+ * unpinned by tests.
+ */
+export type AgentTerminalRun = {
+  /** The command line as the user typed it. */
+  command: string;
+  /** Sanitized combined stdout+stderr, tail-kept when truncated. */
+  output: string;
+  /** The process exit code; null = died by signal. */
+  exitCode: number | null;
+  /** True iff the user aborted the run. */
+  cancelled: boolean;
+  /** True iff `output` is a truncated tail of the full stream. */
+  truncated: boolean;
+};
+
+/**
  * Request for AGENT_SUBMIT_CHANNEL. `edits` are the dirty working
- * copies at submit time (empty when none). Repeat sends repeat the
- * edits — they read as current state, not new deltas.
+ * copies at submit time and `terminalRuns` the commands recorded
+ * since the last accepted turn (the renderer drains its buffer on
+ * ok — runs are events, told once, unlike edits which re-send as
+ * current state). Both are empty when none.
  */
 export type AgentSubmitRequest = {
   /** The user's message for this turn. */
   message: string;
   edits: AgentFileEdit[];
+  terminalRuns: AgentTerminalRun[];
 };
 
 /**
@@ -43,6 +69,32 @@ export type AgentSubmitResult = { ok: true };
 export type AgentModelInfo = {
   id: string;
   label: string;
+  /** Thinking levels this model supports — adapter-enumerated, never
+   * hardcoded in the UI. ["off"] when the model cannot reason at
+   * all; empty when the provider cannot enumerate levels (the
+   * thinking picker stays hidden). */
+  thinkingLevels: readonly AgentThinkingLevel[];
+};
+
+/** The thinking-level vocabulary the contract speaks. pi's levels
+ * are the lingua franca; other providers (Claude Code) adapt or
+ * abstain — see AgentModelInfo.thinkingLevels. */
+export type AgentThinkingLevel =
+  | "off"
+  | "minimal"
+  | "low"
+  | "medium"
+  | "high"
+  | "xhigh"
+  | "max";
+
+/** Thinking control for the active model, as the picker needs it:
+ * the level in effect plus the levels the active model offers. */
+export type AgentThinkingInfo = {
+  /** The level actually in effect (adapter-resolved default when
+   * none was chosen — pi's default, not a contract default). */
+  level: AgentThinkingLevel;
+  levels: readonly AgentThinkingLevel[];
 };
 
 export type AgentProviderInfo = {
@@ -52,6 +104,10 @@ export type AgentProviderInfo = {
    * creation — the concrete default when none was chosen). */
   model: string;
   models: AgentModelInfo[];
+  /** The thinking picker's state, or null when there is no meaningful
+   * choice — the active model offers fewer than two levels, or the
+   * session has no thinking control at all. Null hides the picker. */
+  thinking: AgentThinkingInfo | null;
 };
 
 /** Request for AGENT_SET_PROVIDER_CHANNEL. */
@@ -70,6 +126,22 @@ export type AgentReconfigResult =
 export type SetModelRequest = {
   model: string;
 };
+
+/** Request for AGENT_SET_THINKING_CHANNEL. Setting the level is LIVE:
+ * the session keeps running and the transcript stands — unlike
+ * provider/model changes, no swap happens. */
+export type SetThinkingLevelRequest = {
+  level: AgentThinkingLevel;
+};
+
+/** Response for AGENT_SET_THINKING_CHANNEL. ok means the requested
+ * level is now in effect exactly as requested (validation happened
+ * before the session was touched); unsupported covers both a session
+ * with no thinking control and a level the active model doesn't
+ * offer. */
+export type AgentSetThinkingResult =
+  | { ok: true }
+  | { ok: false; error: { code: "unsupported" } };
 
 /**
  * One event in the agent's stream. Clauses:

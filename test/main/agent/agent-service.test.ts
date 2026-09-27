@@ -49,6 +49,7 @@ describe("AgentService", () => {
     const result = await service.submit({
       message: "fix the bug",
       edits: [{ path: "/ws/a.ts", original: "old", edited: "new" }],
+      terminalRuns: [],
     });
 
     // The service's obligation is delegation only: SOME string reaches
@@ -67,7 +68,7 @@ describe("AgentService", () => {
     expect(pi.aborts).toBe(1);
   });
 
-  it("reports the active provider, its options, and the resolved model", async () => {
+  it("reports the active provider, its options, the resolved model, and thinking", async () => {
     const { service } = await makeService();
 
     const info = await service.getProviderInfo();
@@ -77,9 +78,20 @@ describe("AgentService", () => {
       available: ["pi", "claude"],
       model: "fake-default",
       models: [
-        { id: "fake-default", label: "Fake Default" },
-        { id: "fake-2", label: "Fake Two" },
+        {
+          id: "fake-default",
+          label: "Fake Default",
+          thinkingLevels: ["off", "low", "medium", "high"],
+        },
+        { id: "fake-2", label: "Fake Two", thinkingLevels: ["off", "high"] },
+        { id: "fake-plain", label: "Fake Plain", thinkingLevels: [] },
       ],
+      // fake-default offers a real choice; the session came up at the
+      // fake's default ("off")
+      thinking: {
+        level: "off",
+        levels: ["off", "low", "medium", "high"],
+      },
     });
   });
 
@@ -104,7 +116,7 @@ describe("AgentService", () => {
 
     pi.emit({ type: "turn-start" }); // mid-turn swap
     await service.setProvider("claude");
-    await service.submit({ message: "next", edits: [] });
+    await service.submit({ message: "next", edits: [], terminalRuns: [] });
 
     expect(pi.sentPrompts).toEqual([]); // old session heard nothing
     expect(claude.sentPrompts).toEqual(["next"]);
@@ -166,7 +178,88 @@ describe("AgentService", () => {
     ]);
   });
 
-  // NEW-CHAT tests (consumed by the store's newChat action, which
+  // THINKING tests (consumed by the rail's thinking picker — the
+  // store's thinking state and its switchThinking action):
+  it("setThinkingLevel changes the live session and reports it — no swap", async () => {
+    const { pi, service } = await makeService();
+
+    const result = await service.setThinkingLevel("medium");
+
+    expect(result).toEqual({ ok: true });
+    expect(pi.disposes).toBe(0); // LIVE: the session stands
+    expect(pi.setLevels).toEqual(["medium"]);
+    expect((await service.getProviderInfo()).thinking).toEqual({
+      level: "medium",
+      levels: ["off", "low", "medium", "high"],
+    });
+  });
+
+  it("a level the active model doesn't offer is rejected without touching the session", async () => {
+    const { pi, service } = await makeService();
+
+    const result = await service.setThinkingLevel("max");
+
+    expect(result).toEqual({ ok: false, error: { code: "unsupported" } });
+    expect(pi.setLevels).toEqual([]);
+    expect((await service.getProviderInfo()).thinking?.level).toBe("off");
+  });
+
+  it("a session without thinking control reports unsupported and hides the picker", async () => {
+    const pi = createFakeProvider({ noThinkingControl: true });
+    const service = await AgentService.create(
+      "/ws",
+      { pi: pi.provider },
+      "pi",
+      () => {},
+    );
+
+    const result = await service.setThinkingLevel("medium");
+    const info = await service.getProviderInfo();
+
+    expect(result).toEqual({ ok: false, error: { code: "unsupported" } });
+    expect(pi.setLevels).toEqual([]);
+    // levels exist but the session can't change them — no real choice
+    expect(info.thinking).toBeNull();
+  });
+
+  it("a model swap carries the thinking level across when the new model offers it", async () => {
+    const { pi, service } = await makeService();
+    await service.setThinkingLevel("high"); // high is offered by BOTH fakes
+
+    const result = await service.setModel("fake-2");
+
+    expect(result).toEqual({ ok: true });
+    // the fresh session came up at "off" (the fake's default); the
+    // reconcile set the carried level on it — no extra swap
+    expect(pi.setLevels).toEqual(["high", "high"]);
+    expect(pi.disposes).toBe(1);
+    expect((await service.getProviderInfo()).thinking).toEqual({
+      level: "high",
+      levels: ["off", "high"],
+    });
+  });
+
+  it("a model swap drops the thinking level the new model doesn't offer", async () => {
+    const { pi, service } = await makeService();
+    await service.setThinkingLevel("medium"); // fake-2 offers only off/high
+
+    await service.setModel("fake-2");
+
+    // the fresh session's default stands; nothing was set on it
+    expect(pi.setLevels).toEqual(["medium"]);
+    expect((await service.getProviderInfo()).thinking).toEqual({
+      level: "off",
+      levels: ["off", "high"],
+    });
+  });
+
+  it("a model with no thinking levels hides the picker after a swap", async () => {
+    const { service } = await makeService();
+
+    await service.setModel("fake-plain");
+
+    expect((await service.getProviderInfo()).thinking).toBeNull();
+  });
   // relies on preservation to skip the info refetch, and on in-band
   // failure reporting for its error branch):
   it("newChat replaces the session preserving the provider and the active model", async () => {
@@ -184,8 +277,18 @@ describe("AgentService", () => {
       provider: "pi",
       model: "fake-2",
     });
-    await service.submit({ message: "fresh", edits: [] });
+    await service.submit({ message: "fresh", edits: [], terminalRuns: [] });
     expect(pi.sentPrompts).toEqual(["fresh"]); // routes to the new session
+  });
+
+  it("newChat carries the thinking level across (same model)", async () => {
+    const { pi, service } = await makeService();
+    await service.setThinkingLevel("high");
+
+    await service.newChat();
+
+    expect(pi.setLevels).toEqual(["high", "high"]); // set, then re-carried
+    expect((await service.getProviderInfo()).thinking?.level).toBe("high");
   });
 
   it("a failed newChat reports unavailable and leaves the session running", async () => {

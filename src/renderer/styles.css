@@ -26,10 +26,27 @@ body {
 .sidebar {
   width: 260px;
   min-width: 180px;
-  overflow: auto;
+  display: flex;
+  flex-direction: column;
   background: #252526;
   border-right: 1px solid #333;
+}
+
+.sidebar-tree {
+  flex: 1;
+  overflow: auto;
   padding-bottom: 8px;
+}
+
+.sidebar-git {
+  padding: 6px 10px;
+  border-top: 1px solid #333;
+  font-size: 11px;
+  color: #9a9a9a;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .sidebar-header {
@@ -156,8 +173,14 @@ body {
 .agent-rail-pickers {
   display: flex;
   align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
   gap: 6px;
   min-width: 0;
+}
+
+.thinking-select {
+  max-width: 80px;
 }
 
 /* --- combobox --- */
@@ -303,6 +326,35 @@ body {
   accent-color: #4f7cc4;
 }
 
+.agent-rail-gates {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+
+.agent-rail-gate {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.agent-rail-clear {
+  padding: 0 4px;
+  border: 1px solid #444;
+  border-radius: 3px;
+  background: transparent;
+  color: #9a9a9a;
+  font-size: 11px;
+  line-height: 1.3;
+  cursor: pointer;
+}
+
+.agent-rail-clear:hover {
+  border-color: #7a2d2d;
+  color: #f0b0b0;
+}
+
 .agent-rail-new-chat {
   padding: 3px 10px;
   border: 1px solid #444;
@@ -348,6 +400,118 @@ body {
 .chat-error {
   background: #5a1d1d;
   color: #f0b0b0;
+}
+
+/* --- terminal dock --- */
+
+.terminal-dock {
+  display: flex;
+  flex-direction: column;
+  border-top: 1px solid #333;
+  background: #1b1b1b;
+}
+
+.terminal-strip {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 4px 12px;
+  background: none;
+  border: none;
+  color: #9a9a9a;
+  font: inherit;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  cursor: pointer;
+  text-align: left;
+}
+
+.terminal-strip:hover {
+  color: #d4d4d4;
+}
+
+.terminal-live {
+  color: #e2c08d;
+}
+
+.terminal-output {
+  height: 200px;
+  overflow-y: auto;
+  padding: 4px 12px 6px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px;
+}
+
+.terminal-run {
+  margin-bottom: 8px;
+}
+
+.terminal-run-command {
+  color: #e2c08d;
+}
+
+.terminal-run-output {
+  margin: 2px 0;
+  padding: 0;
+  color: #d4d4d4;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font: inherit;
+}
+
+.terminal-run-status {
+  color: #6a6a6a;
+  font-size: 11px;
+}
+
+.terminal-failed {
+  color: #f0b0b0;
+}
+
+.terminal-input-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 12px 8px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px;
+}
+
+.terminal-prompt {
+  color: #6a6a6a;
+}
+
+.terminal-input {
+  flex: 1;
+  padding: 3px 8px;
+  background: #252526;
+  color: #d4d4d4;
+  border: 1px solid #3c3c3c;
+  border-radius: 4px;
+  font: inherit;
+}
+
+.terminal-input:focus {
+  outline: none;
+  border-color: #4f7cc4;
+}
+
+.terminal-input:disabled {
+  opacity: 0.6;
+}
+
+.terminal-stop {
+  padding: 3px 10px;
+  border: none;
+  border-radius: 4px;
+  background: #7a2d2d;
+  color: #f0b0b0;
+  font-size: 11px;
+  font-family: system-ui, sans-serif;
+  cursor: pointer;
 }
 
 .editor-pane {

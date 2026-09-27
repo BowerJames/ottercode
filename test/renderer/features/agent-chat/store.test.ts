@@ -7,6 +7,7 @@ import {
   AGENT_PROVIDER_CHANNEL,
   AGENT_SET_MODEL_CHANNEL,
   AGENT_SET_PROVIDER_CHANNEL,
+  AGENT_SET_THINKING_CHANNEL,
   AGENT_SUBMIT_CHANNEL,
 } from "../../../../src/shared/ipc/channels";
 import { createClient } from "../../../../src/shared/ipc/client";
@@ -79,12 +80,21 @@ describe("createAgentChatStore", () => {
     expect(s.status).toBe("idle");
   });
 
-  it("send appends the raw user entry and submits message + edits", async () => {
+  it("send appends the raw user entry and submits message + edits + terminal runs", async () => {
     const { harness, store } = makeStore();
     harness.responses.set(AGENT_SUBMIT_CHANNEL, { ok: true });
     const edits = [{ path: "/ws/a.ts", original: "old", edited: "new" }];
+    const runs = [
+      {
+        command: "npm test",
+        output: "ok\n",
+        exitCode: 0,
+        cancelled: false,
+        truncated: false,
+      },
+    ];
 
-    await store.getState().send("fix it", edits);
+    await store.getState().send("fix it", edits, runs);
 
     // The rail consumes `message` — it must stay the raw text, never
     // the composed prompt.
@@ -92,7 +102,11 @@ describe("createAgentChatStore", () => {
       { id: expect.any(Number), kind: "user", message: "fix it" },
     ]);
     const call = harness.calls.find((c) => c.channel === AGENT_SUBMIT_CHANNEL);
-    expect(call?.payload).toEqual({ message: "fix it", edits });
+    expect(call?.payload).toEqual({
+      message: "fix it",
+      edits,
+      terminalRuns: runs,
+    });
   });
 
   it("abort forwards to the client", () => {
@@ -154,10 +168,17 @@ describe("createAgentChatStore", () => {
     expect(s.switchError).not.toBeNull();
   });
 
-  it("switchModel clears the transcript and adopts the model", async () => {
+  it("switchModel clears the transcript, adopts the model, and refreshes thinking", async () => {
     const { harness, store } = makeStore();
     harness.push(AGENT_EVENTS_CHANNEL, { type: "turn-start" });
     harness.responses.set(AGENT_SET_MODEL_CHANNEL, { ok: true });
+    harness.responses.set(AGENT_PROVIDER_CHANNEL, {
+      provider: "pi",
+      available: ["pi", "claude"],
+      model: "sonnet",
+      models: [],
+      thinking: { level: "off", levels: ["off", "high"] },
+    });
 
     await store.getState().switchModel("sonnet");
 
@@ -165,18 +186,154 @@ describe("createAgentChatStore", () => {
     expect(s.model).toBe("sonnet");
     expect(s.entries).toEqual([]);
     expect(s.status).toBe("idle");
+    // the picker's choices follow the active model — never stale
+    expect(s.thinking).toEqual({ level: "off", levels: ["off", "high"] });
   });
 
-  it("loadProviderInfo bootstraps the provider and options", async () => {
+  // TRACK-TERMINAL tests (consumed by the rail footer's checkbox and
+  // count, its clear button, and the Composer's gather at click time):
+  it("recordRun appends only while track terminal is checked", () => {
+    const { store } = makeStore();
+    const run = {
+      command: "npm test",
+      output: "ok",
+      exitCode: 0,
+      cancelled: false,
+      truncated: false,
+    };
+
+    store.getState().recordRun(run); // gate off — not recorded
+    store.getState().setTrackTerminal(true);
+    store.getState().recordRun(run); // gate on — recorded
+
+    expect(store.getState().trackedRuns).toEqual([run]);
+  });
+
+  it("an accepted send drains the tracked buffer — runs are events, told once", async () => {
+    const { harness, store } = makeStore();
+    harness.responses.set(AGENT_SUBMIT_CHANNEL, { ok: true });
+    const run = {
+      command: "npm test",
+      output: "ok",
+      exitCode: 0,
+      cancelled: false,
+      truncated: false,
+    };
+    store.getState().setTrackTerminal(true);
+    store.getState().recordRun(run);
+
+    await store.getState().send("fix it", [], [run]);
+
+    expect(store.getState().trackedRuns).toEqual([]); // drained on ok
+  });
+
+  it("a failed send keeps the tracked buffer — the runs were never told", async () => {
+    const { harness, store } = makeStore();
+    harness.responses.set(AGENT_SUBMIT_CHANNEL, {
+      ok: false,
+      error: { code: "unavailable" },
+    });
+    const run = {
+      command: "npm test",
+      output: "ok",
+      exitCode: 0,
+      cancelled: false,
+      truncated: false,
+    };
+    store.getState().setTrackTerminal(true);
+    store.getState().recordRun(run);
+
+    await store.getState().send("fix it", [], [run]);
+
+    expect(store.getState().trackedRuns).toEqual([run]); // still queued
+  });
+
+  it("the footer's clear empties the buffer without touching the gate", () => {
+    const { store } = makeStore();
+    const run = {
+      command: "npm test",
+      output: "ok",
+      exitCode: 0,
+      cancelled: false,
+      truncated: false,
+    };
+    store.getState().setTrackTerminal(true);
+    store.getState().recordRun(run);
+
+    store.getState().clearTracked();
+
+    expect(store.getState().trackedRuns).toEqual([]);
+    expect(store.getState().trackTerminal).toBe(true); // gate stands
+  });
+
+  // THINKING tests consumed by the rail's picker: it renders level +
+  // levels and dispatches switchThinking on change; the no-reset
+  // clause is why the picker is safe to use mid-turn:
+  it("switchThinking adopts the level live — the transcript and turn stand", async () => {
+    const { harness, store } = makeStore();
+    harness.push(AGENT_EVENTS_CHANNEL, { type: "turn-start" });
+    harness.push(AGENT_EVENTS_CHANNEL, {
+      type: "assistant-delta",
+      text: "mid",
+    });
+    harness.responses.set(AGENT_PROVIDER_CHANNEL, {
+      provider: "pi",
+      available: ["pi"],
+      model: "pi-default",
+      models: [],
+      thinking: { level: "medium", levels: ["off", "medium", "high"] },
+    });
+    await store.getState().loadProviderInfo();
+    harness.responses.set(AGENT_SET_THINKING_CHANNEL, { ok: true });
+
+    await store.getState().switchThinking("high");
+
+    const s = store.getState();
+    expect(s.thinking?.level).toBe("high");
+    expect(s.status).toBe("working"); // the turn keeps running
+    expect(s.entries).toEqual([
+      { id: expect.any(Number), kind: "assistant", text: "mid" },
+    ]); // no reset — unlike the swaps
+    const call = harness.calls.find(
+      (c) => c.channel === AGENT_SET_THINKING_CHANNEL,
+    );
+    // Delegation pinned at the first consumer, same as the send chain.
+    expect(call?.payload).toEqual({ level: "high" });
+  });
+
+  it("a failed switchThinking keeps the level and records the error", async () => {
+    const { harness, store } = makeStore();
+    harness.responses.set(AGENT_PROVIDER_CHANNEL, {
+      provider: "pi",
+      available: ["pi"],
+      model: "pi-default",
+      models: [],
+      thinking: { level: "medium", levels: ["off", "medium", "high"] },
+    });
+    await store.getState().loadProviderInfo();
+    harness.responses.set(AGENT_SET_THINKING_CHANNEL, {
+      ok: false,
+      error: { code: "unsupported" },
+    });
+
+    await store.getState().switchThinking("max");
+
+    const s = store.getState();
+    expect(s.thinking?.level).toBe("medium"); // the picker reverts
+    expect(s.switchError).not.toBeNull();
+  });
+
+  it("loadProviderInfo bootstraps the provider, options, and thinking", async () => {
     const { harness, store } = makeStore();
     harness.responses.set(AGENT_PROVIDER_CHANNEL, {
       provider: "pi",
       available: ["pi", "claude"],
       model: "pi-default",
       models: [
-        { id: "pi-default", label: "PI Default" },
-        { id: "pi-2", label: "PI Two" },
+        { id: "pi-default", label: "PI Default", thinkingLevels: [] },
+        { id: "pi-2", label: "PI Two", thinkingLevels: [] },
       ],
+      thinking: { level: "medium", levels: ["off", "medium", "high"] },
     });
 
     await store.getState().loadProviderInfo();
@@ -186,9 +343,13 @@ describe("createAgentChatStore", () => {
     expect(s.available).toEqual(["pi", "claude"]);
     expect(s.model).toBe("pi-default");
     expect(s.models).toEqual([
-      { id: "pi-default", label: "PI Default" },
-      { id: "pi-2", label: "PI Two" },
+      { id: "pi-default", label: "PI Default", thinkingLevels: [] },
+      { id: "pi-2", label: "PI Two", thinkingLevels: [] },
     ]);
+    expect(s.thinking).toEqual({
+      level: "medium",
+      levels: ["off", "medium", "high"],
+    });
   });
 
   // New-chat tests consumed by the rail's footer button: it renders
