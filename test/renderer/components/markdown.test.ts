@@ -14,6 +14,12 @@ import { Markdown } from "../../../src/renderer/components/Markdown";
  * Deliberately unpinned: markdown-to-HTML correctness (bold, lists,
  * fences). That is the library's behaviour — pinning it would only
  * freeze the adapter choice behind this module's seam.
+ *
+ * The GFM table pin is policy, not library behaviour: react-markdown
+ * alone speaks vanilla CommonMark, and the plugin wiring inside
+ * Markdown is the deliberate decision that files and agent output
+ * written against GFM (the dialect editors expect) render as tables.
+ * Drop the wiring and both surfaces break — so the clause is pinned.
  */
 describe("Markdown", () => {
   it("never renders raw HTML as elements", () => {
@@ -28,5 +34,19 @@ describe("Markdown", () => {
     expect(html).not.toContain("<img");
     expect(html).toContain("hello");
     expect(html).toContain("world");
+  });
+
+  it("renders GFM pipe tables as tables", () => {
+    const html = renderToString(
+      createElement(Markdown, {
+        text: "| a | b |\n| --- | --- |\n| 1 | 2 |",
+      }),
+    );
+
+    expect(html).toContain("<table>");
+    expect(html).toContain("<th>");
+    expect(html).toContain("<td>");
+    // The header cells' text must land in cells, not in stray pipes.
+    expect(html).not.toContain("| a");
   });
 });

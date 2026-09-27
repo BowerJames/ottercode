@@ -1,11 +1,20 @@
 import { memo } from "react";
 import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 
 /**
  * Renders text as markdown — the one rendering policy every markdown
  * surface in the app shares (the chat transcript; the editor's
  * preview). Interface clauses every caller relies on:
  *
+ * - Table syntax (GFM pipe tables) renders as real tables, on every
+ *   surface — files on disk and agent output are written against
+ *   GFM, the dialect editors actually expect. That is why
+ *   `remarkPlugins` stays pinned here: react-markdown alone speaks
+ *   vanilla CommonMark, where pipes are just punctuation. The same
+ *   plugin set also brings the rest of the GFM dialect (strikethrough,
+ *   task lists, autolinks) along for free — all syntax-to-element
+ *   rendering, which is distinct from the raw-HTML ban below.
  * - Raw HTML in the text is NEVER interpreted as markup. Rendered
  *   text is untrusted content — agent output or files on disk — and
  *   `rehype-raw` must never be added here. (The permanent suite pins
@@ -35,6 +44,7 @@ export const Markdown = memo(function Markdown({ text }: { text: string }) {
   return (
     <div className="markdown-body">
       <ReactMarkdown
+        remarkPlugins={[remarkGfm]}
         components={{
           // Non-clickable link: keep the destination visible on hover,
           // drop the navigation (see clause above).
