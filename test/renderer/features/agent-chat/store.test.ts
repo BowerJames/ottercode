@@ -95,7 +95,7 @@ describe("createAgentChatStore", () => {
       },
     ];
 
-    await store.getState().send("fix it", edits, runs);
+    await store.getState().send("fix it", edits, [], runs);
 
     // The rail consumes `message` — it must stay the raw text, never
     // the composed prompt.
@@ -106,6 +106,7 @@ describe("createAgentChatStore", () => {
     expect(call?.payload).toEqual({
       message: "fix it",
       edits,
+      messageEdits: [],
       terminalRuns: runs,
     });
   });
@@ -223,7 +224,7 @@ describe("createAgentChatStore", () => {
     store.getState().setTrackTerminal(true);
     store.getState().recordRun(run);
 
-    await store.getState().send("fix it", [], [run]);
+    await store.getState().send("fix it", [], [], [run]);
 
     expect(store.getState().trackedRuns).toEqual([]); // drained on ok
   });
@@ -244,7 +245,7 @@ describe("createAgentChatStore", () => {
     store.getState().setTrackTerminal(true);
     store.getState().recordRun(run);
 
-    await store.getState().send("fix it", [], [run]);
+    await store.getState().send("fix it", [], [], [run]);
 
     expect(store.getState().trackedRuns).toEqual([run]); // still queued
   });
@@ -330,7 +331,7 @@ describe("createAgentChatStore", () => {
       text: "const x = 1;",
     });
 
-    await store.getState().send("now this", [], [run]);
+    await store.getState().send("now this", [], [], [run]);
 
     const composerCall = harness.calls.find(
       (c) => c.channel === AGENT_SUBMIT_CHANNEL,
@@ -338,6 +339,7 @@ describe("createAgentChatStore", () => {
     expect(composerCall?.payload).toEqual({
       message: "now this",
       edits: [],
+      messageEdits: [],
       terminalRuns: [run],
     });
     expect(store.getState().trackedRuns).toEqual([]); // drained by the composer send only

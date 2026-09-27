@@ -1,9 +1,9 @@
 import { useEffect, useRef } from "react";
 import type { AgentThinkingLevel } from "../../../shared/ipc/agent";
 import { ComboBox } from "../../components/ComboBox";
+import { Markdown } from "../../components/Markdown";
 import { useEditor } from "../editor/use-editor";
-import { collectEdits } from "./collect-edits";
-import { Markdown } from "./Markdown";
+import { collectEdits, collectMessageEdits } from "./collect-edits";
 import type { TranscriptEntry } from "./store";
 import { useAgentChat } from "./use-agent-chat";
 
@@ -46,11 +46,13 @@ export function AgentRail({ width }: { width: number }) {
   );
 }
 
-/** Footer controls: the include-edits gate, the track-terminal gate
- * with its pending count and clear escape hatch, and the new-chat
- * action. The labels carry counts of what would ride along. All stay
- * usable mid-turn — the gates only affect the next send; new chat
- * abandons the turn (the swap contract handles cancellation). */
+/** Footer controls: the include-edits gate (file edits and edited
+ * assistant-message drafts alike — one gate, both attachment kinds),
+ * the track-terminal gate with its pending count and clear escape
+ * hatch, and the new-chat action. The labels carry counts of what
+ * would ride along. All stay usable mid-turn — the gates only affect
+ * the next send; new chat abandons the turn (the swap contract
+ * handles cancellation). */
 function AttachFooter() {
   const includeEdits = useAgentChat((s) => s.includeEdits);
   const setIncludeEdits = useAgentChat((s) => s.setIncludeEdits);
@@ -59,21 +61,25 @@ function AttachFooter() {
   const trackedRuns = useAgentChat((s) => s.trackedRuns);
   const clearTracked = useAgentChat((s) => s.clearTracked);
   const newChat = useAgentChat((s) => s.newChat);
-  const editCount = useEditor((s) => collectEdits(s.workingCopies).length);
+  const editCount = useEditor(
+    (s) =>
+      collectEdits(s.workingCopies).length +
+      collectMessageEdits(s.virtualDocs).length,
+  );
 
   return (
     <footer className="agent-rail-footer">
       <div className="agent-rail-gates">
         <label
           className="agent-rail-attach"
-          title="attach the editor's unsaved edits to your next message"
+          title="attach the editor's unsaved edits — file edits and edited assistant messages — to your next message"
         >
           <input
             type="checkbox"
             checked={includeEdits}
             onChange={(e) => setIncludeEdits(e.target.checked)}
           />
-          include file edits{editCount > 0 ? ` (${editCount})` : ""}
+          include edits{editCount > 0 ? ` (${editCount})` : ""}
         </label>
         <div className="agent-rail-gate">
           <label
@@ -194,12 +200,14 @@ function SwitchError() {
 
 /** One row of the transcript. Assistant text renders as markdown
  * (Markdown's module owns that policy). User and assistant messages
- * double-click into the editor as a read-only snapshot — the key is
- * the entry id, so reopening refreshes rather than duplicates. */
+ * double-click into the editor — the assistant's as an editable
+ * markdown draft (its edits can attach to a later turn), the user's
+ * as a read-only snapshot. The key is the entry id, so reopening
+ * refreshes rather than duplicates. */
 function TranscriptRow({ entry }: { entry: TranscriptEntry }) {
   const openVirtual = useEditor((s) => s.openVirtual);
 
-  const openInEditor = (text: string) => {
+  const openInEditor = (text: string, draft: boolean) => {
     openVirtual({
       key: `virtual:chat/${entry.id}`,
       title:
@@ -207,6 +215,7 @@ function TranscriptRow({ entry }: { entry: TranscriptEntry }) {
           ? `agent message #${entry.id}`
           : `your message #${entry.id}`,
       text,
+      draft,
     });
   };
 
@@ -217,7 +226,7 @@ function TranscriptRow({ entry }: { entry: TranscriptEntry }) {
         <div
           className="chat-entry chat-user"
           title="double-click to open this message in the editor"
-          onDoubleClick={() => openInEditor(entry.message)}
+          onDoubleClick={() => openInEditor(entry.message, false)}
         >
           {/* Attachment-only turn: the composer sends edits/tracked runs
               with no message — show a marker, not an empty bubble. */}
@@ -239,8 +248,8 @@ function TranscriptRow({ entry }: { entry: TranscriptEntry }) {
         // biome-ignore lint/a11y/noStaticElementInteractions: a pointer-only affordance by design — double-click opens the message; word-selection via double-click is traded away deliberately.
         <div
           className="chat-entry chat-assistant"
-          title="double-click to open this message in the editor"
-          onDoubleClick={() => openInEditor(entry.text)}
+          title="double-click to open this message in the editor as an editable draft"
+          onDoubleClick={() => openInEditor(entry.text, true)}
         >
           <Markdown text={entry.text} />
         </div>

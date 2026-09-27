@@ -1,5 +1,6 @@
 import type {
   AgentFileEdit,
+  AgentMessageEdit,
   AgentSelection,
   AgentSelectionSubmitRequest,
   AgentSubmitRequest,
@@ -32,8 +33,10 @@ import type {
  * states the load-bearing fact that the edits exist only in the
  * user's editor — disk still has the old content — because the
  * session's read tools hit disk and would otherwise contradict the
- * diffs. Files at or above MAX_DIFF_LINES ship whole (LCS is
- * quadratic). Deterministic: same request, same prompt, byte for
+ * diffs; last, each edited assistant message as the same +/- diff
+ * under its title, framed as the user's corrections to the model's
+ * own past words. Files at or above MAX_DIFF_LINES ship whole (LCS
+ * is quadratic). Deterministic: same request, same prompt, byte for
  * byte — a repeat send reads the same as a first send.
  */
 
@@ -69,6 +72,17 @@ export function composePrompt(request: AgentSubmitRequest): string {
     );
     for (const edit of request.edits) {
       sections.push(...fileSection(edit));
+    }
+  }
+  if (request.messageEdits.length > 0) {
+    if (sections.length > 0) {
+      sections.push("");
+    }
+    sections.push(
+      "The user has edited some of your earlier messages in the editor. The `-` lines are what you wrote; the `+` lines are the user's corrections. Treat the `+` lines as the user's current intent:",
+    );
+    for (const edit of request.messageEdits) {
+      sections.push(...messageSection(edit));
     }
   }
   return sections.join("\n");
@@ -125,22 +139,35 @@ function runSection(run: AgentTerminalRun): string[] {
 }
 
 function fileSection(edit: AgentFileEdit): string[] {
-  const original = edit.original.split("\n");
-  const edited = edit.edited.split("\n");
-  if (original.length > MAX_DIFF_LINES || edited.length > MAX_DIFF_LINES) {
+  return ["", `### ${edit.path}`, ...diffBlock(edit.original, edit.edited)];
+}
+
+/** One edited assistant message: its rail title as the heading, the
+ * same diff block a file gets. */
+function messageSection(edit: AgentMessageEdit): string[] {
+  return ["", `### ${edit.title}`, ...diffBlock(edit.original, edit.edited)];
+}
+
+/** A +/- line diff under a fenced ```diff block — or the current
+ * content whole, past MAX_DIFF_LINES (LCS is quadratic). */
+function diffBlock(original: string, edited: string): string[] {
+  const originalLines = original.split("\n");
+  const editedLines = edited.split("\n");
+  if (
+    originalLines.length > MAX_DIFF_LINES ||
+    editedLines.length > MAX_DIFF_LINES
+  ) {
     return [
-      "",
-      `### ${edit.path}`,
-      "(file too large to diff — current editor content follows)",
+      "(too large to diff — current editor content follows)",
       "```",
-      edit.edited,
+      edited,
       "```",
     ];
   }
-  const lines = diffLines(original, edited).map((op) =>
+  const lines = diffLines(originalLines, editedLines).map((op) =>
     op.kind === "del" ? `-${op.line}` : `+${op.line}`,
   );
-  return ["", `### ${edit.path}`, "```diff", ...lines, "```"];
+  return ["```diff", ...lines, "```"];
 }
 
 type LineOp = { kind: "del" | "add"; line: string };

@@ -100,13 +100,14 @@ describe("createEditorStore", () => {
   });
 });
 
-// VIRTUAL DOCUMENTS (consumed by the agent rail's double-click: a
-// message opens as a read-only snapshot). The record's separation
-// from workingCopies is the load-bearing wall: collectEdits gathers
-// dirty working copies into agent:submit, and a synthetic key
-// crossing that contract would reach main's disk writer.
+// VIRTUAL DOCUMENTS (consumed by the agent rail's double-click: an
+// assistant message opens as an editable markdown draft, a user
+// message as a read-only snapshot). The record's separation from
+// workingCopies is the load-bearing wall: collectEdits gathers dirty
+// working copies into agent:submit, and a synthetic key crossing that
+// contract would reach main's disk writer.
 describe("createEditorStore — virtual documents", () => {
-  it("openVirtual activates a snapshot without touching the fs", () => {
+  it("openVirtual activates a document without touching the fs", () => {
     const { harness, store } = makeStore();
 
     store.getState().openVirtual({
@@ -119,7 +120,9 @@ describe("createEditorStore — virtual documents", () => {
     expect(s.activePath).toBe("virtual:chat/7");
     expect(s.virtualDocs["virtual:chat/7"]).toEqual({
       title: "agent message #7",
-      text: "# hello",
+      draft: false,
+      original: "# hello",
+      content: "# hello",
       revision: 0,
     });
     // Never a file copy, never an fs read — a virtual doc has no disk
@@ -128,7 +131,7 @@ describe("createEditorStore — virtual documents", () => {
     expect(harness.calls).toEqual([]);
   });
 
-  it("reopening the same key refreshes the snapshot and focuses — no duplicate", () => {
+  it("reopening a clean doc refreshes the snapshot and focuses — no duplicate", () => {
     const { store } = makeStore();
     store.getState().openVirtual({
       key: "virtual:chat/7",
@@ -147,7 +150,7 @@ describe("createEditorStore — virtual documents", () => {
     expect(Object.keys(store.getState().virtualDocs)).toEqual([
       "virtual:chat/7",
     ]);
-    expect(store.getState().virtualDocs["virtual:chat/7"]?.text).toBe(
+    expect(store.getState().virtualDocs["virtual:chat/7"]?.content).toBe(
       "partial, now complete",
     );
     // The remount signal moved with the text — EditorPane's document
@@ -164,7 +167,7 @@ describe("createEditorStore — virtual documents", () => {
     expect(store.getState().virtualDocs["virtual:chat/7"]?.revision).toBe(1);
   });
 
-  it("edit is a no-op for virtual keys — snapshots cannot become file edits", () => {
+  it("edit is a no-op for snapshot keys — they cannot become dirty", () => {
     const { store } = makeStore();
     store.getState().openVirtual({
       key: "virtual:chat/7",
@@ -174,12 +177,74 @@ describe("createEditorStore — virtual documents", () => {
 
     store.getState().edit("virtual:chat/7", "tampered");
 
-    // The guard chain: edit never creates a working copy, so the doc
-    // can never be dirty, so collectEdits can never attach it to a
-    // turn. If this pin breaks, a synthetic path rides agent:submit.
-    expect(store.getState().virtualDocs["virtual:chat/7"]?.text).toBe(
+    // The guard chain: edit never touches a snapshot, so it can never
+    // be dirty, so no collector can ever attach it to a turn. If this
+    // pin breaks, a synthetic key rides agent:submit.
+    expect(store.getState().virtualDocs["virtual:chat/7"]?.content).toBe(
       "snapshot",
     );
     expect(store.getState().workingCopies).toEqual({});
+  });
+
+  it("drafts edit: content moves, original stands as the diff base", () => {
+    const { store } = makeStore();
+    store.getState().openVirtual({
+      key: "virtual:chat/7",
+      title: "agent message #7",
+      text: "as the assistant wrote it",
+      draft: true,
+    });
+
+    store.getState().edit("virtual:chat/7", "as the user corrected it");
+
+    const doc = store.getState().virtualDocs["virtual:chat/7"];
+    expect(doc?.content).toBe("as the user corrected it");
+    expect(doc?.original).toBe("as the assistant wrote it");
+    // Still no file copy — a draft's edits ride as message edits,
+    // never as file edits.
+    expect(store.getState().workingCopies).toEqual({});
+  });
+
+  it("drafts reset: content := original, revision bumps (remount)", () => {
+    const { store } = makeStore();
+    store.getState().openVirtual({
+      key: "virtual:chat/7",
+      title: "agent message #7",
+      text: "original",
+      draft: true,
+    });
+    store.getState().edit("virtual:chat/7", "edited");
+
+    store.getState().reset("virtual:chat/7");
+
+    const doc = store.getState().virtualDocs["virtual:chat/7"];
+    expect(doc?.content).toBe("original");
+    expect(doc?.original).toBe("original"); // the diff base stands
+    expect(doc?.revision).toBe(1);
+  });
+
+  it("reopening an EDITED draft never clobbers — the user's work wins", () => {
+    const { store } = makeStore();
+    store.getState().openVirtual({
+      key: "virtual:chat/7",
+      title: "agent message #7",
+      text: "v1",
+      draft: true,
+    });
+    store.getState().edit("virtual:chat/7", "v1 (edited)");
+
+    // The entry kept streaming after the user started editing; the
+    // reopen must not refresh over the user's words.
+    store.getState().openVirtual({
+      key: "virtual:chat/7",
+      title: "agent message #7",
+      text: "v1, fully streamed",
+      draft: true,
+    });
+
+    const doc = store.getState().virtualDocs["virtual:chat/7"];
+    expect(doc?.original).toBe("v1");
+    expect(doc?.content).toBe("v1 (edited)");
+    expect(doc?.revision).toBe(0); // no remount — nothing changed
   });
 });

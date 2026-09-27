@@ -1,6 +1,7 @@
 import { create, type StoreApi, type UseBoundStore } from "zustand";
 import type {
   AgentFileEdit,
+  AgentMessageEdit,
   AgentModelInfo,
   AgentSelection,
   AgentTerminalRun,
@@ -72,15 +73,16 @@ export type AgentChatState = {
   trackedRuns: AgentTerminalRun[];
   /** Appends the user entry (the raw message — the rail shows what
    * the user typed, never the composed prompt) and submits the turn
-   * with the caller-gathered edits and terminal runs. An empty
-   * message is a legal turn — the attachments carry it (the composer
-   * gates that; this store adds no emptiness guard of its own).
-   * Ignored while a turn is working. Settles only after the store
-   * reflects the outcome; an accepted send drains the tracked-run
-   * buffer. */
+   * with the caller-gathered attachments — file edits, edited
+   * assistant-message drafts, and terminal runs. An empty message is
+   * a legal turn — the attachments carry it (the composer gates
+   * that; this store adds no emptiness guard of its own). Ignored
+   * while a turn is working. Settles only after the store reflects
+   * the outcome; an accepted send drains the tracked-run buffer. */
   send(
     message: string,
     edits?: AgentFileEdit[],
+    messageEdits?: AgentMessageEdit[],
     terminalRuns?: AgentTerminalRun[],
   ): Promise<void>;
   /** Submits a focused turn: the message plus ONE editor selection,
@@ -200,12 +202,13 @@ export function createAgentChatStore(
       trackTerminal: false,
       trackedRuns: [],
 
-      async send(message, edits, terminalRuns) {
+      async send(message, edits, messageEdits, terminalRuns) {
         if (get().status === "working") return;
         const runs = terminalRuns ?? [];
         const result = await agent.submit({
           message,
           edits: edits ?? [],
+          messageEdits: messageEdits ?? [],
           terminalRuns: runs,
         });
         if (result.ok) {

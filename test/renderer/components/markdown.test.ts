@@ -1,14 +1,15 @@
 import { createElement } from "react";
 import { renderToString } from "react-dom/server";
 import { describe, expect, it } from "vitest";
-import { Markdown } from "../../../../src/renderer/features/agent-chat/Markdown";
+import { Markdown } from "../../../src/renderer/components/Markdown";
 
 /**
- * Permanent suite — one pin, one consumer: every transcript surface
- * renders assistant text through Markdown, and the clause every one
- * of them relies on is that raw HTML in agent output is NEVER
- * interpreted as markup. Agent text is untrusted content; an injected
- * element must not survive as an element.
+ * Permanent suite — one pin, two consumers: the chat transcript and
+ * the editor's markdown preview both render through Markdown, and the
+ * clause every surface relies on is that raw HTML is NEVER
+ * interpreted as markup. Rendered text is untrusted content — agent
+ * output or files on disk; an injected element must not survive as an
+ * element.
  *
  * Deliberately unpinned: markdown-to-HTML correctness (bold, lists,
  * fences). That is the library's behaviour — pinning it would only

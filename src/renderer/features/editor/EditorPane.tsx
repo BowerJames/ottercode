@@ -8,8 +8,10 @@ import {
 } from "@codemirror/view";
 import { useEffect, useRef, useState } from "react";
 import type { FsErrorCode } from "../../../shared/ipc/fs";
+import { Markdown } from "../../components/Markdown";
 import { useFileTree } from "../file-tree/use-file-tree";
 import { languageFor } from "./language";
+import { isMarkdownPath } from "./markdown";
 import { SelectionMenu } from "./SelectionMenu";
 import {
   type SelectionMenuRequest,
@@ -61,7 +63,27 @@ export function EditorPane() {
   const showError =
     openError !== null && openError.path === (selected?.path ?? null);
   const dirty =
-    workingCopy !== undefined && workingCopy.content !== workingCopy.original;
+    (workingCopy !== undefined &&
+      workingCopy.content !== workingCopy.original) ||
+    (virtualDoc !== undefined && virtualDoc.content !== virtualDoc.original);
+
+  // Preview is view state, not document state — the pane owns it, and
+  // it resets per document: opening anything always lands in source
+  // view. Eligibility: markdown files by path, assistant drafts by
+  // kind — a draft IS markdown (its rail rendering proves it); user
+  // snapshots stay plain text.
+  const [preview, setPreview] = useState(false);
+  // biome-ignore lint/correctness/useExhaustiveDependencies(activePath): activePath is the intentional trigger — preview resets on document switch, not on anything the body reads.
+  useEffect(() => {
+    setPreview(false);
+  }, [activePath]);
+
+  const previewable =
+    activePath !== null &&
+    (workingCopy !== undefined
+      ? isMarkdownPath(activePath)
+      : (virtualDoc?.draft ?? false));
+  const showPreview = preview && previewable;
 
   return (
     <section className="editor-pane">
@@ -76,31 +98,52 @@ export function EditorPane() {
             {virtualDoc !== undefined && (
               <span
                 className="editor-virtual-tag"
-                title="read-only — a snapshot, not a file on disk"
+                title={
+                  virtualDoc.draft
+                    ? "an editable copy of this assistant message — your edits can attach to your next message"
+                    : "read-only — a snapshot, not a file on disk"
+                }
               >
-                read-only
+                {virtualDoc.draft ? "draft" : "read-only"}
               </span>
             )}
             {dirty && (
               <span
                 className="editor-dirty-dot"
-                title="Differs from disk — edits live in memory only"
+                title={
+                  virtualDoc !== undefined
+                    ? "Differs from the assistant's message — your edits live in memory only"
+                    : "Differs from disk — edits live in memory only"
+                }
               >
                 ●
               </span>
             )}
             {/* Rendered only while dirty, like the dot it answers. Reset is
               the store's remount signal: the key below rebuilds the
-              surface from the restored snapshot. Undo history drops —
-              reset means discard, not another edit. */}
+              surface from the restored snapshot — the loaded file or the
+              assistant's words. Undo history drops — reset means
+              discard, not another edit. */}
             {dirty && (
               <button
                 type="button"
                 className="editor-revert"
-                title="discard your edits — restore the content as loaded"
+                title="discard your edits — restore the content as you opened it"
                 onClick={() => reset(activePath)}
               >
                 revert
+              </button>
+            )}
+            {/* Markdown surfaces only — files by path, drafts by kind;
+              the label names the view a click lands in. */}
+            {previewable && (
+              <button
+                type="button"
+                className="editor-preview-toggle"
+                title="render this markdown file — or return to its source"
+                onClick={() => setPreview((p) => !p)}
+              >
+                {showPreview ? "source" : "preview"}
               </button>
             )}
           </div>
@@ -109,24 +152,39 @@ export function EditorPane() {
         <div className="editor-error">{ERROR_MESSAGES[openError.code]}</div>
       )}
       {activePath !== null && workingCopy !== undefined ? (
-        <EditorDocument
-          // path:revision — a reset bumps the revision and remounts the
-          // document from the restored snapshot (see store.reset).
-          key={`${activePath}:${workingCopy.revision}`}
-          path={activePath}
-          initial={workingCopy.content}
-        />
+        showPreview ? (
+          // The shared Markdown policy over the LIVE content: edits made
+          // in source view show up on switch, and a revert updates the
+          // preview in place. The trade: CodeMirror unmounts here, so
+          // switching back starts a fresh undo history — the working
+          // copy itself is untouched (view state, not document state).
+          <div className="markdown-preview">
+            <Markdown text={workingCopy.content} />
+          </div>
+        ) : (
+          <EditorDocument
+            // path:revision — a reset bumps the revision and remounts the
+            // document from the restored snapshot (see store.reset).
+            key={`${activePath}:${workingCopy.revision}`}
+            path={activePath}
+            initial={workingCopy.content}
+            selectionMenu
+          />
+        )
       ) : activePath !== null && virtualDoc !== undefined ? (
-        // Virtual docs: a read-only surface over the snapshot. No
-        // selection menu — its request carries the path across the
-        // IPC contract, and a synthetic key must never cross.
+        // Virtual docs: assistant drafts are EDITABLE markdown
+        // surfaces (the toggle above); user snapshots are read-only
+        // plain text. Neither gets the selection menu — its request
+        // carries the path across the IPC contract, and a synthetic
+        // key must never cross (drafts ride as message edits, not
+        // selections).
         <EditorDocument
           // Same remount contract as working copies: key:revision —
-          // a refreshed snapshot rebuilds the surface.
+          // a refreshed snapshot or a reset rebuilds the surface.
           key={`${activePath}:${virtualDoc.revision}`}
           path={activePath}
-          initial={virtualDoc.text}
-          readonly
+          initial={virtualDoc.content}
+          readonly={!virtualDoc.draft}
         />
       ) : (
         <div className="editor-empty">Select a file to view and edit it</div>
@@ -141,17 +199,24 @@ export function EditorPane() {
  * its own state and streams changes up to the store.
  *
  * Right-clicking a non-empty selection opens the send-to-agent menu
- * (the open/close decision lives in selection-request); an empty
- * selection falls through to native behavior.
+ * (the open/close decision lives in selection-request) — working
+ * copies only, via `selectionMenu`; an empty selection falls through
+ * to native behavior.
  */
 function EditorDocument({
   path,
   initial,
   readonly = false,
+  selectionMenu = false,
 }: {
   path: string;
   initial: string;
   readonly?: boolean;
+  /** Whether right-click opens the send-to-agent menu. Working
+   * copies only: the menu's request carries the path across the IPC
+   * contract, and a synthetic key must never cross — so editable
+   * drafts stay menu-less by construction. */
+  selectionMenu?: boolean;
 }) {
   const hostRef = useRef<HTMLDivElement | null>(null);
   const viewRef = useRef<CodeMirrorView | null>(null);
@@ -179,8 +244,8 @@ function EditorDocument({
         // Draws the caret and selection ourselves: the native caret is
         // black and hairline-thin — invisible on the dark background.
         drawSelection(),
-        // Virtual documents are reading surfaces: selection and copy
-        // work, editing does not.
+        // Virtual snapshots are reading surfaces: selection and copy
+        // work, editing does not (drafts edit, snapshots don't).
         ...(readonly ? [EditorState.readOnly.of(true)] : []),
         editorTheme,
         ...(!readonly
@@ -208,9 +273,8 @@ function EditorDocument({
         ref={hostRef}
         className="editor-host"
         onContextMenu={
-          readonly
-            ? undefined
-            : (e) => {
+          selectionMenu
+            ? (e) => {
                 const view = viewRef.current;
                 if (view === null) return;
                 const main = view.state.selection.main;
@@ -224,6 +288,7 @@ function EditorDocument({
                 e.preventDefault();
                 setMenuRequest(request);
               }
+            : undefined
         }
       />
       {menuRequest !== null && (

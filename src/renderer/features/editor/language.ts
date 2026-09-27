@@ -16,6 +16,11 @@ import { tags as t } from "@lezer/highlight";
  * leaves CodeMirror's plain-text default in force. EditorPane knows
  * nothing about file types; it only forwards the path it already keys
  * its documents by.
+ *
+ * `extensionOf` is exported as the app's single path→extension
+ * classifier: markdown.ts's preview eligibility consumes it, so a
+ * file's grammar and its preview affordance can never disagree about
+ * what type the path is.
  */
 export function languageFor(path: string): Extension[] {
   switch (extensionOf(path)) {
@@ -43,7 +48,7 @@ export function languageFor(path: string): Extension[] {
 /** The final dot-segment of the path's last component, lowercased —
  * `.PY` and `app.TS` light up like their lowercase kin. Dotfiles
  * (`.gitignore`) and extensionless names (`Makefile`) match nothing. */
-function extensionOf(path: string): string {
+export function extensionOf(path: string): string {
   const name = path.split(/[\\/]/).at(-1) ?? path;
   const dot = name.lastIndexOf(".");
   return dot === -1 ? "" : name.slice(dot).toLowerCase();

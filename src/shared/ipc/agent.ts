@@ -21,6 +21,23 @@ export type AgentFileEdit = {
 };
 
 /**
+ * One user-edited assistant message riding along on a turn: the
+ * message as the assistant wrote it and the user's current version,
+ * verbatim — the message-edit twin of AgentFileEdit, same semantic
+ * payload clause. Identified by title, never by a synthetic editor
+ * key: this type crosses the wire, and only real things cross (the
+ * rail's display title is the stable, human-readable name).
+ */
+export type AgentMessageEdit = {
+  /** Which message — the rail's display title (e.g. "agent message #7"). */
+  title: string;
+  /** The message as the assistant wrote it (the diff base). */
+  original: string;
+  /** The user's current in-editor version. */
+  edited: string;
+};
+
+/**
  * One user-run terminal command riding along on a turn: the command
  * and its recorded outcome. Semantic payload by design — the wire
  * never carries rendered prompt text; formatting is main's policy
@@ -45,17 +62,21 @@ export type AgentTerminalRun = {
 
 /**
  * Request for AGENT_SUBMIT_CHANNEL. `edits` are the dirty working
- * copies at submit time and `terminalRuns` the commands recorded
- * since the last accepted turn (the renderer drains its buffer on
- * ok — runs are events, told once, unlike edits which re-send as
- * current state). Both are empty when none.
+ * copies at submit time, `messageEdits` the edited assistant-message
+ * drafts at submit time (same resend-as-current-state policy), and
+ * `terminalRuns` the commands recorded since the last accepted turn
+ * (the renderer drains its buffer on ok — runs are events, told once,
+ * unlike edits which re-send as current state). All arrays are empty
+ * when none.
  */
 export type AgentSubmitRequest = {
   /** The user's message for this turn. May be empty — the turn then
-   * rides on `edits` and/or `terminalRuns` alone (attachments make
-   * a valid turn); a request empty in all three is never made. */
+   * rides on `edits` and/or `messageEdits` and/or `terminalRuns`
+   * alone (attachments make a valid turn); a request empty in all
+   * four is never made. */
   message: string;
   edits: AgentFileEdit[];
+  messageEdits: AgentMessageEdit[];
   terminalRuns: AgentTerminalRun[];
 };
 

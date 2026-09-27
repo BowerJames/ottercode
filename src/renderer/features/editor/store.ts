@@ -24,22 +24,34 @@ export type WorkingCopy = {
 /** Last failed open, for the error surface. */
 export type OpenError = { path: string; code: FsErrorCode };
 
-/** An in-memory read-only document with no disk counterpart — e.g. a
- * chat message opened for comfortable reading. Kept in its own record
+/** An in-memory document with no disk counterpart — either a
+ * read-only snapshot (e.g. a user chat message opened for reading) or
+ * an editable draft of an assistant message. Kept in its own record
  * (`virtualDocs`), never in `workingCopies`: every file flow (dirty
  * marking, edit attachment, reset) iterates `workingCopies` only, so
  * a virtual doc STRUCTURALLY cannot leak into them — most importantly
  * into collectEdits, whose output crosses the IPC contract into
- * main's disk writes. A synthetic key must never ride `agent:submit`. */
+ * main's disk writes. A synthetic key must never ride `agent:submit`
+ * as a file edit; edited drafts ride as AgentMessageEdit, a different
+ * attachment kind that carries a title, not a path. */
 export type VirtualDoc = {
-  /** Display title — synthetic keys are ugly on purpose. */
+  /** Display title — synthetic keys are ugly on purpose. Also the
+   * wire identity of an edited draft (AgentMessageEdit.title). */
   title: string;
-  /** Snapshot at open time; refreshed only by reopening. */
-  text: string;
-  /** Bumped only by a reopening that CHANGED the text — the
-   * editor's remount signal, same contract as WorkingCopy.revision:
-   * the document key is key:revision, so a refresh rebuilds the
-   * surface from the new snapshot. */
+  /** True for assistant-message drafts: editable, rendered as
+   * markdown, and gathered as an attachment when dirty. False for
+   * reading snapshots: plain, read-only, never dirty. */
+  draft: boolean;
+  /** The text as it was opened — for drafts, the assistant's words
+   * (the diff base and revert target); for snapshots, the text. */
+  original: string;
+  /** Current text. Moves only for drafts (via `edit`); snapshots
+   * keep it identical to `original` forever. */
+  content: string;
+  /** Bumped only by a reopening that CHANGED the text, or by reset —
+   * the editor's remount signal, same contract as
+   * WorkingCopy.revision: the document key is key:revision, so a
+   * refresh or reset rebuilds the surface from the new text. */
   revision: number;
 };
 
@@ -63,22 +75,30 @@ export type EditorState = {
    */
   open(path: string): Promise<void>;
   /** Opens a virtual document and makes it active. No fs read, no
-   * error mode. Snapshot semantics: the text is captured at open —
-   * reopening the same key REFRESHES the snapshot (a message may have
-   * grown since), bumps the revision when the text changed, and
-   * focuses; it never duplicates. Virtual documents are read-only:
-   * `edit` is a no-op for their keys, so they can never become dirty
-   * and never ride along on a turn. */
-  openVirtual(doc: { key: string; title: string; text: string }): void;
-  /** Replaces the in-memory content of an open working copy. */
+   * error mode. `draft` marks an assistant message: editable and
+   * markdown-rendered (snapshots stay read-only and plain). Refresh
+   * semantics: reopening a CLEAN doc with changed text refreshes the
+   * snapshot and bumps the revision (a message may have grown since);
+   * reopening an EDITED draft never clobbers — the user's edits win
+   * over the live entry, and the doc only gains focus. Reopening
+   * never duplicates. */
+  openVirtual(doc: {
+    key: string;
+    title: string;
+    text: string;
+    draft?: boolean;
+  }): void;
+  /** Replaces the in-memory content of an open working copy, or of an
+   * assistant-message draft. Snapshots are structural no-ops: they
+   * have no editable surface. */
   edit(path: string, content: string): void;
-  /** Restores the load-time snapshot: content := original, revision
+  /** Restores the open-time snapshot: content := original, revision
    * bumps. The bump is the remount signal — the editor's document key
    * consumes it, so the surface rebuilds from the restored content.
    * `original` stands: it remains the diff base for the next edit
-   * cycle. No-op for a path with no copy — reset never creates one.
-   * Not a disk re-read: disk may have moved on since load; this
-   * undoes the USER's edits to what they saw. */
+   * cycle. No-op for a key with no open document — reset never
+   * creates one. Not a disk re-read: this undoes the USER's edits to
+   * what they saw. */
   reset(path: string): void;
 };
 
@@ -99,18 +119,28 @@ export function createEditorStore(fs: EditorFs): UseEditorStore {
     openVirtual(doc) {
       set((s) => {
         const existing = s.virtualDocs[doc.key];
+        // An edited draft wins over the live entry: reopen with
+        // different text keeps the user's work and only focuses.
+        // Everything else refreshes when the text actually moved —
+        // a refocus of the same text keeps the surface (and its
+        // scroll position) standing.
+        const dirty =
+          existing !== undefined && existing.content !== existing.original;
+        // A first open is not a change: revision starts at 0, and only
+        // a reopen with moved text bumps it.
+        const changed =
+          existing !== undefined && existing.original !== doc.text;
         return {
           virtualDocs: {
             ...s.virtualDocs,
             [doc.key]: {
               title: doc.title,
-              text: doc.text,
-              // Remount only when the snapshot actually moved — a
-              // refocus of the same text keeps the surface (and its
-              // scroll position) standing.
+              draft: doc.draft ?? false,
+              original: dirty ? (existing?.original ?? doc.text) : doc.text,
+              content: dirty ? (existing?.content ?? doc.text) : doc.text,
               revision:
-                existing !== undefined && existing.text !== doc.text
-                  ? existing.revision + 1
+                !dirty && changed
+                  ? (existing?.revision ?? 0) + 1
                   : (existing?.revision ?? 0),
             },
           },
@@ -151,30 +181,58 @@ export function createEditorStore(fs: EditorFs): UseEditorStore {
     edit(path, content) {
       set((s) => {
         const copy = s.workingCopies[path];
-        if (copy === undefined) return s; // editing requires an open copy
-        return {
-          workingCopies: {
-            ...s.workingCopies,
-            [path]: { ...copy, content },
-          },
-        };
+        if (copy !== undefined) {
+          return {
+            workingCopies: {
+              ...s.workingCopies,
+              [path]: { ...copy, content },
+            },
+          };
+        }
+        // Drafts only — a snapshot has no editable surface, so its
+        // key is a structural no-op here (never dirty, never rides).
+        const doc = s.virtualDocs[path];
+        if (doc?.draft) {
+          return {
+            virtualDocs: {
+              ...s.virtualDocs,
+              [path]: { ...doc, content },
+            },
+          };
+        }
+        return s; // editing requires an open copy or draft
       });
     },
 
     reset(path) {
       set((s) => {
         const copy = s.workingCopies[path];
-        if (copy === undefined) return s; // no phantom copies on reset
-        return {
-          workingCopies: {
-            ...s.workingCopies,
-            [path]: {
-              ...copy,
-              content: copy.original,
-              revision: copy.revision + 1,
+        if (copy !== undefined) {
+          return {
+            workingCopies: {
+              ...s.workingCopies,
+              [path]: {
+                ...copy,
+                content: copy.original,
+                revision: copy.revision + 1,
+              },
             },
-          },
-        };
+          };
+        }
+        const doc = s.virtualDocs[path];
+        if (doc !== undefined) {
+          return {
+            virtualDocs: {
+              ...s.virtualDocs,
+              [path]: {
+                ...doc,
+                content: doc.original,
+                revision: doc.revision + 1,
+              },
+            },
+          };
+        }
+        return s; // no phantom documents on reset
       });
     },
   }));

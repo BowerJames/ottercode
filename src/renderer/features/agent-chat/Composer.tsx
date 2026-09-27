@@ -1,20 +1,20 @@
 import { useState } from "react";
 import { useEditor } from "../editor/use-editor";
-import { collectEdits } from "./collect-edits";
+import { collectEdits, collectMessageEdits } from "./collect-edits";
 import { useAgentChat } from "./use-agent-chat";
 
 /**
  * The composer: docked at the bottom of the editor column. Sends the
- * message plus the user's dirty in-editor edits when the rail
- * footer's include-edits gate is on (checked here at click time — the
+ * message plus the user's dirty in-editor edits — file edits AND
+ * edited assistant-message drafts — when the rail footer's
+ * include-edits gate is on (checked here at click time — the
  * composition point: collect-edits is the what-attaches policy,
  * main's compose-prompt is the how-it-renders policy). Disabled while
  * a turn is working; stop aborts.
  *
  * A turn needs a message OR pending attachments: sends go out with an
- * empty message when edits will attach or tracked runs are queued —
- * the attachments carry the turn (compose-prompt renders them
- * stand-alone).
+ * empty message when any will attach — attachments make a valid turn
+ * (compose-prompt renders them stand-alone).
  *
  * Enter sends; Shift+Enter inserts a newline. The textarea grows with
  * its content (CSS `field-sizing: content`) up to half the window height,
@@ -26,7 +26,14 @@ export function Composer() {
   const abort = useAgentChat((s) => s.abort);
   const includeEdits = useAgentChat((s) => s.includeEdits);
   const trackedRuns = useAgentChat((s) => s.trackedRuns);
-  const editCount = useEditor((s) => collectEdits(s.workingCopies).length);
+  // Both attachment kinds count: the gate label says "edits" and the
+  // empty-message rule says attachments make a valid turn — file
+  // edits and message edits alike.
+  const editCount = useEditor(
+    (s) =>
+      collectEdits(s.workingCopies).length +
+      collectMessageEdits(s.virtualDocs).length,
+  );
   const [text, setText] = useState("");
 
   const working = status === "working";
@@ -48,11 +55,14 @@ export function Composer() {
     const edits = useAgentChat.getState().includeEdits
       ? collectEdits(useEditor.getState().workingCopies)
       : [];
+    const messageEdits = useAgentChat.getState().includeEdits
+      ? collectMessageEdits(useEditor.getState().virtualDocs)
+      : [];
     // Tracked runs were gated at record time — unchecking since
     // doesn't un-record them (they ran while checked; they still
     // ride). The buffer drains on the accepted send.
     const terminalRuns = useAgentChat.getState().trackedRuns;
-    void send(message, edits, terminalRuns);
+    void send(message, edits, messageEdits, terminalRuns);
   };
 
   return (

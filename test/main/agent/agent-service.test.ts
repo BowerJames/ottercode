@@ -49,6 +49,7 @@ describe("AgentService", () => {
     const result = await service.submit({
       message: "fix the bug",
       edits: [{ path: "/ws/a.ts", original: "old", edited: "new" }],
+      messageEdits: [],
       terminalRuns: [],
     });
 
@@ -132,7 +133,12 @@ describe("AgentService", () => {
 
     pi.emit({ type: "turn-start" }); // mid-turn swap
     await service.setProvider("claude");
-    await service.submit({ message: "next", edits: [], terminalRuns: [] });
+    await service.submit({
+      message: "next",
+      edits: [],
+      messageEdits: [],
+      terminalRuns: [],
+    });
 
     expect(pi.sentPrompts).toEqual([]); // old session heard nothing
     expect(claude.sentPrompts).toEqual(["next"]);
@@ -293,7 +299,12 @@ describe("AgentService", () => {
       provider: "pi",
       model: "fake-2",
     });
-    await service.submit({ message: "fresh", edits: [], terminalRuns: [] });
+    await service.submit({
+      message: "fresh",
+      edits: [],
+      messageEdits: [],
+      terminalRuns: [],
+    });
     expect(pi.sentPrompts).toEqual(["fresh"]); // routes to the new session
   });
 
