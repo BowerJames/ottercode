@@ -11,6 +11,7 @@ import { useFileTree } from "./use-file-tree";
 export function FileTree() {
   const root = useFileTree((s) => s.root);
   const loadRoot = useFileTree((s) => s.loadRoot);
+  const refresh = useFileTree((s) => s.refresh);
 
   useEffect(() => {
     void loadRoot();
@@ -30,7 +31,18 @@ export function FileTree() {
 
   return (
     <>
-      <div className="sidebar-header">{rootName}</div>
+      <div className="sidebar-header">
+        <span className="sidebar-header-name">{rootName}</span>
+        <button
+          type="button"
+          className="sidebar-refresh"
+          title="Refresh the file tree from disk"
+          aria-label="Refresh the file tree from disk"
+          onClick={() => void refresh()}
+        >
+          ⟳
+        </button>
+      </div>
       <div className="sidebar-tree">
         <RootChildren root={root} />
       </div>

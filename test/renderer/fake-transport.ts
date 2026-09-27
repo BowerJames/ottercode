@@ -6,15 +6,18 @@ import type {
 
 /**
  * Recording, programmable fake for the client transport seam — both
- * halves. Responses are programmed per channel (invoke); events are fed
- * with push (subscribe). An unprogrammed invoke channel yields
- * undefined — which the real createClient riding on top surfaces as a
- * visible failure: wrong-channel delegation cannot pass silently.
+ * halves. Responses are programmed per channel (invoke); the
+ * programmed value may be a plain response or a responder invoked
+ * per call with the request payload — the seam for channels that
+ * must answer differently over time (e.g. disk state changing
+ * between calls). An unprogrammed invoke channel yields undefined —
+ * which the real createClient riding on top surfaces as a visible
+ * failure: wrong-channel delegation cannot pass silently.
  */
 export function createFakeTransport(): {
   transport: ClientTransport;
   calls: Array<{ channel: string; payload: unknown }>;
-  responses: Map<string, unknown>;
+  responses: Map<string, unknown | ((payload: unknown) => unknown)>;
   push(channel: string, payload: unknown): void;
 } {
   const calls: Array<{ channel: string; payload: unknown }> = [];
@@ -23,7 +26,8 @@ export function createFakeTransport(): {
 
   const fakeInvoke: Invoke = async (channel, payload) => {
     calls.push({ channel, payload });
-    return responses.get(channel);
+    const programmed = responses.get(channel);
+    return typeof programmed === "function" ? programmed(payload) : programmed;
   };
 
   const fakeSubscribe: Subscribe = (channel, listener) => {
