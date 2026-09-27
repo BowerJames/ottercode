@@ -15,9 +15,11 @@
   },
   "include": [
     "src/main/**/*.ts",
+    "src/shared/**/*.ts",
     "bin/**/*.mjs",
     "scripts/**/*.mjs",
     "test/main/**/*.ts",
+    "test/shared/**/*.ts",
     "*.ts"
   ]
 }

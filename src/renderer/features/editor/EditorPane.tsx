@@ -8,10 +8,18 @@ import {
 } from "@codemirror/view";
 import { useEffect, useRef, useState } from "react";
 import type { FsErrorCode } from "../../../shared/ipc/fs";
+import { languageIdOf } from "../../../shared/lang/languages";
 import { Markdown } from "../../components/Markdown";
 import { useFileTree } from "../file-tree/use-file-tree";
+import { completionExtension } from "./completion";
+import {
+  definitionExtension,
+  goToDefinitionAt,
+  revealInView,
+} from "./definition";
 import { languageFor } from "./language";
 import { isMarkdownPath } from "./markdown";
+import { RenamePrompt, renameKeymap } from "./rename";
 import { SelectionMenu } from "./SelectionMenu";
 import {
   type SelectionMenuRequest,
@@ -223,11 +231,44 @@ function EditorDocument({
   const [menuRequest, setMenuRequest] = useState<SelectionMenuRequest | null>(
     null,
   );
+  // Rename prompt anchor data, captured from the view when it opens.
+  const [renameRequest, setRenameRequest] = useState<{
+    x: number;
+    y: number;
+    offset: number;
+  } | null>(null);
   const edit = useEditor((s) => s.edit);
+  // Language intelligence eligibility — one classifier read, consumed by
+  // the extension bundle and the context menu's language items alike.
+  // Virtual doc keys classify to null by construction, so drafts and
+  // snapshots self-disable.
+  const languageClassified = languageIdOf(path) !== null;
+  // The definition jump target, consumed once per request: cross-file
+  // jumps land here after the target surface mounts.
+  const reveal = useEditor((s) => s.reveal);
+  const clearReveal = useEditor((s) => s.clearReveal);
   // Capture once per mount: re-renders pass the latest store content,
   // but the editor must not be rebuilt mid-edit.
   const initialDoc = useRef(initial).current;
 
+  /** Opens the rename prompt. `at` (the symbol offset) overrides the
+   * caret — the context menu passes the clicked word when there is
+   * no selection. */
+  const openRename = (at?: number): void => {
+    const view = viewRef.current;
+    if (view === null) return;
+    const head = at ?? view.state.selection.main.head;
+    const coords = view.coordsAtPos(head);
+    setRenameRequest({
+      x: coords?.left ?? 0,
+      y: (coords?.bottom ?? 0) + 4,
+      offset: head,
+    });
+  };
+
+  // openRename is stable over the mount (closes over refs only) —
+  // the view is built once per mount; it must not rebuild mid-edit.
+  // biome-ignore lint/correctness/useExhaustiveDependencies(openRename): see the comment above — intentional exclusion.
   useEffect(() => {
     const host = hostRef.current;
     if (host === null) return;
@@ -241,6 +282,16 @@ function EditorDocument({
         ...languageFor(path),
         history(),
         keymap.of([...defaultKeymap, ...historyKeymap]),
+        // Language intelligence — working copies of classified
+        // languages only: the extensions self-gate on the shared
+        // classifier, and virtual keys classify to null by construction.
+        ...(!readonly && languageClassified
+          ? [
+              definitionExtension(path),
+              completionExtension(path),
+              renameKeymap(() => openRename()),
+            ]
+          : []),
         // Draws the caret and selection ourselves: the native caret is
         // black and hairline-thin — invisible on the dark background.
         drawSelection(),
@@ -264,7 +315,20 @@ function EditorDocument({
       view.destroy();
       viewRef.current = null;
     };
-  }, [edit, initialDoc, path, readonly]);
+    // languageClassified derives from path (already a dep): listing it
+    // satisfies the exhaustive-deps rule without adding rebuilds.
+  }, [edit, initialDoc, path, readonly, languageClassified]);
+
+  // The definition jump, consumed once: the effect fires on reveal
+  // requests (including the mount that follows a cross-file open),
+  // scrolls to the target word, and clears — a later remount of this
+  // surface never replays a consumed jump.
+  useEffect(() => {
+    const view = viewRef.current;
+    if (reveal === null || view === null || reveal.path !== path) return;
+    revealInView(view, reveal.position);
+    clearReveal();
+  }, [reveal, clearReveal, path]);
 
   return (
     <>
@@ -278,13 +342,18 @@ function EditorDocument({
                 const view = viewRef.current;
                 if (view === null) return;
                 const main = view.state.selection.main;
+                // The click's document offset: where the language menu
+                // aims when nothing is selected. Outside text → caret.
+                const clickOffset =
+                  view.posAtCoords({ x: e.clientX, y: e.clientY }) ?? main.head;
                 const request = selectionMenuRequest(
                   path,
                   main,
                   view.state.sliceDoc(main.from, main.to),
                   { x: e.clientX, y: e.clientY },
+                  clickOffset,
                 );
-                if (request === null) return; // empty selection: native path
+                if (request === null) return; // nothing to offer: native path
                 e.preventDefault();
                 setMenuRequest(request);
               }
@@ -295,6 +364,30 @@ function EditorDocument({
         <SelectionMenu
           request={menuRequest}
           onClose={() => setMenuRequest(null)}
+          onRename={
+            languageClassified
+              ? () => openRename(menuRequest.symbolOffset)
+              : undefined
+          }
+          onGoToDefinition={
+            languageClassified
+              ? () => {
+                  const view = viewRef.current;
+                  if (view !== null) {
+                    void goToDefinitionAt(view, path, menuRequest.symbolOffset);
+                  }
+                }
+              : undefined
+          }
+        />
+      )}
+      {renameRequest !== null && viewRef.current !== null && (
+        <RenamePrompt
+          view={viewRef.current}
+          path={path}
+          offset={renameRequest.offset}
+          anchor={{ x: renameRequest.x, y: renameRequest.y }}
+          onClose={() => setRenameRequest(null)}
         />
       )}
     </>

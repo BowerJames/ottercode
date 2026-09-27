@@ -248,3 +248,77 @@ describe("createEditorStore — virtual documents", () => {
     expect(doc?.revision).toBe(0); // no remount — nothing changed
   });
 });
+
+// RENAME EDITS + REVEAL (consumed by: the rename flow applying a
+// lang:rename result, collectEdits gathering the resulting dirty set
+// into the next agent:submit, and EditorPane's remount key). Rename
+// is attachment-shaped by contract: open docs keep their own diff
+// base, unopened docs materialize as dirty copies from the edit pair
+// itself — the exact shape collectEdits attaches.
+describe("createEditorStore — applyRenameEdits & reveal", () => {
+  it("applies an edit to an open copy: content replaced, original kept, revision bumps", async () => {
+    const { harness, store } = makeStore();
+    harness.responses.set(FS_READ_FILE_CHANNEL, {
+      ok: true,
+      content: "let foo = 1;",
+    });
+    await store.getState().open("/ws/a.ts");
+
+    store
+      .getState()
+      .applyRenameEdits([
+        { path: "/ws/a.ts", original: "let foo = 1;", edited: "let bar = 1;" },
+      ]);
+
+    // original stands: it stays the diff base the NEXT edit cycle (and
+    // the agent attachment) diffs against — rename is just an edit.
+    expect(store.getState().workingCopies["/ws/a.ts"]).toEqual({
+      original: "let foo = 1;",
+      content: "let bar = 1;",
+      revision: 1,
+    });
+    // Activation is untouched: renaming never navigates.
+    expect(store.getState().activePath).toBe("/ws/a.ts");
+  });
+
+  it("materializes an edit for an unopened file as a dirty copy, without activating", async () => {
+    const { store } = makeStore();
+
+    store
+      .getState()
+      .applyRenameEdits([
+        { path: "/ws/b.ts", original: "let foo;", edited: "let bar;" },
+      ]);
+
+    expect(store.getState().workingCopies["/ws/b.ts"]).toEqual({
+      original: "let foo;",
+      content: "let bar;",
+      revision: 0,
+    });
+    expect(store.getState().activePath).toBeNull();
+    // Dirty from birth: the dot shows and collectEdits attaches it —
+    // the unopened file's rename persists through the agent flow.
+    expect(store.getState().workingCopies["/ws/b.ts"]?.content).not.toBe(
+      store.getState().workingCopies["/ws/b.ts"]?.original,
+    );
+  });
+
+  it("revealAt records a jump and clearReveal consumes it", () => {
+    const { store } = makeStore();
+
+    store
+      .getState()
+      .revealAt({ path: "/ws/a.ts", position: { line: 1, character: 2 } });
+    // The set clause — consumed by EditorDocument's effect, which
+    // scrolls on it and then clears. Nonce freshness is deliberately
+    // unpinned: the effect triggers on object identity, not the nonce.
+    expect(store.getState().reveal).toEqual({
+      path: "/ws/a.ts",
+      position: { line: 1, character: 2 },
+      nonce: expect.any(Number),
+    });
+
+    store.getState().clearReveal();
+    expect(store.getState().reveal).toBeNull();
+  });
+});

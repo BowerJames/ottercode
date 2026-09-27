@@ -7,9 +7,11 @@ import {
 } from "@codemirror/language";
 import type { Extension } from "@codemirror/state";
 import { tags as t } from "@lezer/highlight";
+import { extensionOf, languageIdOf } from "../../../shared/lang/languages";
 
 /**
- * File type → syntax support: the one place that knows which grammar a
+ * File type → syntax support over the SHARED classifier
+ * (shared/lang/languages): the one place that knows which grammar a
  * path gets, how it indents, and how it's colored. A caller hands over
  * a path and receives the complete bundle — grammar, indent unit,
  * highlight style — or an empty list for unrecognized types, which
@@ -17,41 +19,34 @@ import { tags as t } from "@lezer/highlight";
  * nothing about file types; it only forwards the path it already keys
  * its documents by.
  *
- * `extensionOf` is exported as the app's single path→extension
- * classifier: markdown.ts's preview eligibility consumes it, so a
- * file's grammar and its preview affordance can never disagree about
- * what type the path is.
+ * `extensionOf` is re-exported for the renderer's existing consumers
+ * (markdown.ts's preview eligibility), so a file's grammar and its
+ * preview affordance can never disagree about what type the path is —
+ * and main's language-server routing classifies through the very same
+ * primitive.
  */
+export { extensionOf } from "../../../shared/lang/languages";
+
 export function languageFor(path: string): Extension[] {
-  switch (extensionOf(path)) {
-    case ".py":
+  switch (languageIdOf(path)) {
+    case "python":
       // Python's four-space indent is the language's own convention;
       // CodeMirror's default unit (two) belongs to the curly-brace world.
       return [python(), indentUnit.of("    "), highlighting];
-    case ".ts":
-    case ".mts":
-    case ".cts":
-      return [javascript({ typescript: true }), highlighting];
-    case ".tsx":
-      return [javascript({ typescript: true, jsx: true }), highlighting];
-    case ".js":
-    case ".mjs":
-    case ".cjs":
-      return [javascript(), highlighting];
-    case ".jsx":
-      return [javascript({ jsx: true }), highlighting];
+    case "typescript":
+    case "javascript": {
+      // One server serves both languages; the grammar still differs
+      // per dialect — JSX-ness rides the extension, TS-ness the id.
+      const ext = extensionOf(path);
+      const jsx = ext === ".tsx" || ext === ".jsx";
+      return [
+        javascript({ typescript: languageIdOf(path) === "typescript", jsx }),
+        highlighting,
+      ];
+    }
     default:
       return [];
   }
-}
-
-/** The final dot-segment of the path's last component, lowercased —
- * `.PY` and `app.TS` light up like their lowercase kin. Dotfiles
- * (`.gitignore`) and extensionless names (`Makefile`) match nothing. */
-export function extensionOf(path: string): string {
-  const name = path.split(/[\\/]/).at(-1) ?? path;
-  const dot = name.lastIndexOf(".");
-  return dot === -1 ? "" : name.slice(dot).toLowerCase();
 }
 
 // Dark+-inspired palette to sit beside the editor theme's #d4d4d4

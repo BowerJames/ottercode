@@ -41,11 +41,13 @@ by the noun it represents:
 src/
 ├── shared/                    # Importable by both processes. No Node, Electron, or DOM.
 │   ├── ipc/                   # THE contract: channels + events + typed client
+│   ├── lang/                  # Language coordinates + path→language classification
 │   └── …                      # Pure domain logic (e.g. shared domain helpers)
 │
 ├── main/
 │   ├── agent/                 # Owns the pi AgentSession: lifecycle + event mapping
 │   ├── workspace/             # File services; the authority on disk state
+│   ├── language/              # Language intelligence: LSP engines behind one service
 │   ├── terminal/              # The workspace terminal: one command at a time, streamed
 │   ├── ipc/                   # Glue: maps contract channels to service calls
 │   └── index.ts               # Window creation + wiring only. Stays thin.
@@ -102,6 +104,25 @@ pre-committed list. Don't pre-scaffold empty trees anywhere.
   divergence between disk and what the renderer last saw.
 - Services here are plain classes/functions with **no Electron imports** so
   they can be unit-tested without a window.
+
+### `src/main/language/` — language intelligence
+
+- Owns go-to-definition, rename, and autocomplete behind one small
+  service interface (`LanguageService`): routing, degradation
+  (`no-server` when no binary resolves), failure cooldowns, and
+  per-query timeouts live here and nowhere above it.
+- Server reality stays below the `LanguageEngine` seam: the stdio LSP
+  adapter owns the handshake, document sync, and every server-native
+  shape's normalization into contract shapes. A second adapter (the
+  scripted test fakes) keeps the seam honest.
+- **Rename never writes disk.** Its edit set is attachment-shaped
+  (`LangFileEdit` ≡ `AgentFileEdit`): the renderer applies it to
+  working copies in memory, and the next agent turn persists it —
+  the same flow as hand edits. The agent stays the only disk writer.
+- Requests carry whole-document content (buffers are unsaved; disk
+  can't answer for the active file). Rename additionally carries every
+  OTHER open document's content so its edits are computed against
+  what the user sees.
 
 ### `src/main/ipc/` — glue only
 

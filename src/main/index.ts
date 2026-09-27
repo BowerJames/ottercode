@@ -1,3 +1,4 @@
+import { existsSync } from "node:fs";
 import path from "node:path";
 import { app, BrowserWindow } from "electron";
 import {
@@ -10,7 +11,12 @@ import { piProvider } from "./agent/providers/pi.js";
 import { registerAgentIpc } from "./ipc/register-agent-ipc.js";
 import { registerFsIpc } from "./ipc/register-fs-ipc.js";
 import { registerGitIpc } from "./ipc/register-git-ipc.js";
+import { registerLangIpc } from "./ipc/register-lang-ipc.js";
 import { registerTerminalIpc } from "./ipc/register-terminal-ipc.js";
+import { LanguageService } from "./language/language-service.js";
+import { createStdioConnection } from "./language/real-lsp-connection.js";
+import { createServerResolver } from "./language/server-resolver.js";
+import { createLspEngine } from "./language/stdio-lsp-engine.js";
 import { realTerminalSpawner } from "./terminal/real-terminal-spawner.js";
 import { TerminalService } from "./terminal/terminal-service.js";
 import { readGitStatus } from "./workspace/git-status.js";
@@ -48,6 +54,27 @@ app.whenReady().then(async () => {
   // One source of workspace root: the git read always agrees with the
   // fs services, whichever was constructed first.
   registerGitIpc(() => readGitStatus(workspace.getRoot(), realGitRunner));
+
+  // Language intelligence degrades silently when a server binary is
+  // missing — the editor works without it, the queries just refuse
+  // with no-server. Everything environment-shaped is injected here,
+  // the composition root, so the services stay pure.
+  registerLangIpc(
+    new LanguageService({
+      resolver: createServerResolver({
+        root: workspace.getRoot(),
+        exists: existsSync,
+        pathDirs: () => (process.env.PATH ?? "").split(path.delimiter),
+        now: Date.now,
+      }),
+      createEngine: (_language, command) =>
+        createLspEngine({
+          root: workspace.getRoot(),
+          connection: createStdioConnection(command, workspace.getRoot()),
+          readFile: (filePath) => realWorkspaceFs.readFile(filePath),
+        }),
+    }),
+  );
 
   const win = createWindow();
 

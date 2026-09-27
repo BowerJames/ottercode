@@ -25,6 +25,9 @@ import {
   FS_READ_FILE_CHANNEL,
   FS_ROOT_CHANNEL,
   GIT_STATUS_CHANNEL,
+  LANG_COMPLETION_CHANNEL,
+  LANG_DEFINITION_CHANNEL,
+  LANG_RENAME_CHANNEL,
   TERMINAL_ABORT_CHANNEL,
   TERMINAL_EVENTS_CHANNEL,
   TERMINAL_RUN_CHANNEL,
@@ -37,6 +40,14 @@ import type {
   RootResult,
 } from "./fs.js";
 import type { GitStatusResult } from "./git.js";
+import type {
+  CompletionRequest,
+  CompletionResult,
+  DefinitionRequest,
+  DefinitionResult,
+  RenameRequest,
+  RenameResult,
+} from "./lang.js";
 import type {
   TerminalEvent,
   TerminalRunRequest,
@@ -72,6 +83,14 @@ export interface OttercodeClient {
   };
   git: {
     status(): Promise<GitStatusResult>;
+  };
+  lang: {
+    /** Where the symbol at a position is defined. */
+    definition(request: DefinitionRequest): Promise<DefinitionResult>;
+    /** Compute a workspace-wide rename's edits (never writes disk). */
+    rename(request: RenameRequest): Promise<RenameResult>;
+    /** Completion candidates at a position. */
+    completion(request: CompletionRequest): Promise<CompletionResult>;
   };
   terminal: {
     /** Run one command. Fire-and-forget — outcome arrives on events. */
@@ -127,6 +146,23 @@ export function createClient(transport: ClientTransport): OttercodeClient {
     git: {
       status() {
         return invoke(GIT_STATUS_CHANNEL, {}) as Promise<GitStatusResult>;
+      },
+    },
+    lang: {
+      definition(request: DefinitionRequest) {
+        return invoke(
+          LANG_DEFINITION_CHANNEL,
+          request,
+        ) as Promise<DefinitionResult>;
+      },
+      rename(request: RenameRequest) {
+        return invoke(LANG_RENAME_CHANNEL, request) as Promise<RenameResult>;
+      },
+      completion(request: CompletionRequest) {
+        return invoke(
+          LANG_COMPLETION_CHANNEL,
+          request,
+        ) as Promise<CompletionResult>;
       },
     },
     terminal: {

@@ -15,9 +15,17 @@ import type { SelectionMenuRequest } from "./selection-request";
 export function SelectionMenu({
   request,
   onClose,
+  onRename,
+  onGoToDefinition,
 }: {
   request: SelectionMenuRequest;
   onClose: () => void;
+  /** Offer a symbol rename for this selection (classified files
+   * only; absent = no entry — the menu never renames what has no
+   * language). */
+  onRename?: () => void;
+  /** Offer a definition jump (same gating as rename). */
+  onGoToDefinition?: () => void;
 }) {
   const [phase, setPhase] = useState<"menu" | "prompt">("menu");
   const [text, setText] = useState("");
@@ -68,13 +76,43 @@ export function SelectionMenu({
   return (
     <div ref={rootRef} className="selection-menu" style={{ left, top, width }}>
       {phase === "menu" ? (
-        <button
-          type="button"
-          className="selection-menu-item"
-          onClick={() => setPhase("prompt")}
-        >
-          send to agent
-        </button>
+        <>
+          {onGoToDefinition !== undefined && (
+            <button
+              type="button"
+              className="selection-menu-item"
+              onClick={() => {
+                onClose();
+                onGoToDefinition();
+              }}
+            >
+              go to definition
+            </button>
+          )}
+          {onRename !== undefined && (
+            <button
+              type="button"
+              className="selection-menu-item"
+              onClick={() => {
+                onClose();
+                onRename();
+              }}
+            >
+              rename symbol
+            </button>
+          )}
+          {/* Send-to-agent is selection-only: the language menu (empty
+            selection) carries no text to fence. */}
+          {request.selection.length > 0 && (
+            <button
+              type="button"
+              className="selection-menu-item"
+              onClick={() => setPhase("prompt")}
+            >
+              send to agent
+            </button>
+          )}
+        </>
       ) : (
         <div className="selection-prompt">
           <div className="selection-prompt-context" title={request.selection}>

@@ -1,4 +1,4 @@
-import { extensionOf } from "./language";
+import { extensionOf } from "../../../shared/lang/languages";
 
 /**
  * Path → preview affordance: the one place that knows which files earn

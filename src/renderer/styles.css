@@ -864,6 +864,71 @@ body.panel-resizing-y {
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
 }
 
+/* --- rename prompt (caret-anchored, same surface family) --- */
+
+.rename-prompt {
+  position: fixed;
+  z-index: 30;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: 240px;
+  padding: 8px;
+  background: #252526;
+  border: 1px solid #3c3c3c;
+  border-radius: 4px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+}
+
+.rename-prompt-input {
+  width: 100%;
+  padding: 4px 8px;
+  font-size: 12px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  color: #d4d4d4;
+  background: #1e1e1e;
+  border: 1px solid #3c3c3c;
+  border-radius: 3px;
+  outline: none;
+}
+
+.rename-prompt-input:focus {
+  border-color: #4f7cc4;
+}
+
+.rename-prompt-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.rename-prompt-status {
+  flex: 1;
+  font-size: 11px;
+  color: #c9a468;
+}
+
+.rename-prompt-cancel,
+.rename-prompt-apply {
+  padding: 3px 10px;
+  font-size: 11px;
+  color: #d4d4d4;
+  background: #2d2d2d;
+  border: 1px solid #3c3c3c;
+  border-radius: 3px;
+  cursor: pointer;
+}
+
+.rename-prompt-apply {
+  color: #c8d8f0;
+  border-color: #4f7cc4;
+}
+
+.rename-prompt-apply:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
 .selection-menu-item {
   display: block;
   width: 100%;

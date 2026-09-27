@@ -55,3 +55,12 @@ export const AGENT_SET_THINKING_CHANNEL = "agent:setThinking";
 /** Request/response: start a new chat — a fresh session with the
  * current provider and model. */
 export const AGENT_NEW_CHAT_CHANNEL = "agent:newChat";
+
+/** Request/response: where the symbol at a position is defined. */
+export const LANG_DEFINITION_CHANNEL = "lang:definition";
+
+/** Request/response: compute a workspace-wide rename's edits. */
+export const LANG_RENAME_CHANNEL = "lang:rename";
+
+/** Request/response: completion candidates at a position. */
+export const LANG_COMPLETION_CHANNEL = "lang:completion";

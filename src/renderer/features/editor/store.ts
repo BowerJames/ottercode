@@ -1,6 +1,8 @@
 import { create, type StoreApi, type UseBoundStore } from "zustand";
 import type { OttercodeClient } from "../../../shared/ipc/client";
 import type { FsErrorCode } from "../../../shared/ipc/fs";
+import type { LangFileEdit } from "../../../shared/ipc/lang";
+import type { LangPosition } from "../../../shared/lang/position";
 
 /** The slice of the client the editor depends on. */
 export type EditorFs = Pick<OttercodeClient["fs"], "readFile">;
@@ -23,6 +25,19 @@ export type WorkingCopy = {
 
 /** Last failed open, for the error surface. */
 export type OpenError = { path: string; code: FsErrorCode };
+
+/**
+ * A jump target for the definition flow: open this document and land
+ * on this position. The nonce makes every request distinct — two
+ * jumps to the same spot must both land — and consumption CLEARS the
+ * field (clearReveal), so remounting a document never replays a stale
+ * jump.
+ */
+export type RevealRequest = {
+  path: string;
+  position: LangPosition;
+  nonce: number;
+};
 
 /** An in-memory document with no disk counterpart — either a
  * read-only snapshot (e.g. a user chat message opened for reading) or
@@ -66,6 +81,8 @@ export type EditorState = {
   activePath: string | null;
   /** Null after any successful open. */
   openError: OpenError | null;
+  /** The pending definition jump, if any (see RevealRequest). */
+  reveal: RevealRequest | null;
 
   /**
    * Loads the file into a working copy (first open only) and makes it
@@ -100,6 +117,18 @@ export type EditorState = {
    * creates one. Not a disk re-read: this undoes the USER's edits to
    * what they saw. */
   reset(path: string): void;
+  /** Applies a rename's file edits in memory — rename never writes
+   * disk (the agent flow is the only writer). Open copies keep their
+   * OWN original (the diff base stands) and gain content + a revision
+   * bump (the remount signal); unopened files materialize as dirty
+   * copies from the edit pair itself — exactly the shape collectEdits
+   * attaches to the next turn. Activation is never touched. */
+  applyRenameEdits(edits: LangFileEdit[]): void;
+  /** Records a definition jump target (fresh nonce per call). */
+  revealAt(request: Omit<RevealRequest, "nonce">): void;
+  /** Consumes the pending jump (EditorDocument calls this after
+   * scrolling), so a later remount doesn't replay it. */
+  clearReveal(): void;
 };
 
 export type UseEditorStore = UseBoundStore<StoreApi<EditorState>>;
@@ -110,11 +139,14 @@ export type UseEditorStore = UseBoundStore<StoreApi<EditorState>>;
  * tests supply the real client over a fake Invoke.
  */
 export function createEditorStore(fs: EditorFs): UseEditorStore {
+  // Store-local nonce counter: stays out of the public state shape.
+  let revealNonce = 0;
   return create<EditorState>()((set, get) => ({
     workingCopies: {},
     virtualDocs: {},
     activePath: null,
     openError: null,
+    reveal: null,
 
     openVirtual(doc) {
       set((s) => {
@@ -234,6 +266,30 @@ export function createEditorStore(fs: EditorFs): UseEditorStore {
         }
         return s; // no phantom documents on reset
       });
+    },
+
+    applyRenameEdits(edits) {
+      if (edits.length === 0) return;
+      set((s) => {
+        const workingCopies = { ...s.workingCopies };
+        for (const edit of edits) {
+          const open = workingCopies[edit.path];
+          workingCopies[edit.path] =
+            open !== undefined
+              ? { ...open, content: edit.edited, revision: open.revision + 1 }
+              : { original: edit.original, content: edit.edited, revision: 0 };
+        }
+        return { workingCopies };
+      });
+    },
+
+    revealAt(request) {
+      revealNonce += 1;
+      set({ reveal: { ...request, nonce: revealNonce } });
+    },
+
+    clearReveal() {
+      set({ reveal: null });
     },
   }));
 }
