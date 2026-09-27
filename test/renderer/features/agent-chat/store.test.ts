@@ -9,6 +9,7 @@ import {
   AGENT_SET_PROVIDER_CHANNEL,
   AGENT_SET_THINKING_CHANNEL,
   AGENT_SUBMIT_CHANNEL,
+  AGENT_SUBMIT_SELECTION_CHANNEL,
 } from "../../../../src/shared/ipc/channels";
 import { createClient } from "../../../../src/shared/ipc/client";
 import { createFakeTransport } from "../../fake-transport";
@@ -264,6 +265,82 @@ describe("createAgentChatStore", () => {
 
     expect(store.getState().trackedRuns).toEqual([]);
     expect(store.getState().trackTerminal).toBe(true); // gate stands
+  });
+
+  // SELECTION tests (consumed by the editor's SelectionMenu: it
+  // dispatches sendSelection and renders against the appended user
+  // entry; the footer's tracked-run count consumes the no-drain):
+  it("sendSelection submits a focused turn on its own channel and keeps tracked runs queued", async () => {
+    const { harness, store } = makeStore();
+    harness.responses.set(AGENT_SUBMIT_SELECTION_CHANNEL, { ok: true });
+    const run = {
+      command: "npm test",
+      output: "ok",
+      exitCode: 0,
+      cancelled: false,
+      truncated: false,
+    };
+    store.getState().setTrackTerminal(true);
+    store.getState().recordRun(run);
+
+    await store.getState().sendSelection("what does this do?", {
+      path: "/ws/a.ts",
+      text: "const x = 1;",
+    });
+
+    // Deep equality pins BOTH the delegation at the first consumer AND
+    // the structural exclusivity: no edits/terminalRuns keys exist on
+    // the wire — a selection turn never carries them.
+    const call = harness.calls.find(
+      (c) => c.channel === AGENT_SUBMIT_SELECTION_CHANNEL,
+    );
+    expect(call?.payload).toEqual({
+      message: "what does this do?",
+      selection: { path: "/ws/a.ts", text: "const x = 1;" },
+    });
+    // The user entry carries the selection's path — the rail renders
+    // it as a provenance marker under the message.
+    expect(store.getState().entries).toEqual([
+      {
+        id: expect.any(Number),
+        kind: "user",
+        message: "what does this do?",
+        selectionPath: "/ws/a.ts",
+      },
+    ]);
+    // Nothing drains: queued runs stay queued for the next composer send.
+    expect(store.getState().trackedRuns).toEqual([run]);
+  });
+
+  it("a composer send after a selection turn still attaches and drains the queued runs", async () => {
+    const { harness, store } = makeStore();
+    harness.responses.set(AGENT_SUBMIT_SELECTION_CHANNEL, { ok: true });
+    harness.responses.set(AGENT_SUBMIT_CHANNEL, { ok: true });
+    const run = {
+      command: "npm test",
+      output: "ok",
+      exitCode: 0,
+      cancelled: false,
+      truncated: false,
+    };
+    store.getState().setTrackTerminal(true);
+    store.getState().recordRun(run);
+    await store.getState().sendSelection("look here", {
+      path: "/ws/a.ts",
+      text: "const x = 1;",
+    });
+
+    await store.getState().send("now this", [], [run]);
+
+    const composerCall = harness.calls.find(
+      (c) => c.channel === AGENT_SUBMIT_CHANNEL,
+    );
+    expect(composerCall?.payload).toEqual({
+      message: "now this",
+      edits: [],
+      terminalRuns: [run],
+    });
+    expect(store.getState().trackedRuns).toEqual([]); // drained by the composer send only
   });
 
   // THINKING tests consumed by the rail's picker: it renders level +

@@ -2,6 +2,7 @@ import type {
   AgentEvent,
   AgentProviderInfo,
   AgentReconfigResult,
+  AgentSelectionSubmitRequest,
   AgentSetThinkingResult,
   AgentSubmitRequest,
   AgentSubmitResult,
@@ -19,6 +20,7 @@ import {
   AGENT_SET_PROVIDER_CHANNEL,
   AGENT_SET_THINKING_CHANNEL,
   AGENT_SUBMIT_CHANNEL,
+  AGENT_SUBMIT_SELECTION_CHANNEL,
   FS_LIST_CHILDREN_CHANNEL,
   FS_READ_FILE_CHANNEL,
   FS_ROOT_CHANNEL,
@@ -81,6 +83,11 @@ export interface OttercodeClient {
   };
   agent: {
     submit(request: AgentSubmitRequest): Promise<AgentSubmitResult>;
+    /** Submit a focused turn: message + one selection, nothing else
+     * attaches (see AgentSelectionSubmitRequest). */
+    submitSelection(
+      request: AgentSelectionSubmitRequest,
+    ): Promise<AgentSubmitResult>;
     abort(): Promise<void>;
     /** Subscribe to the agent event stream. Returns unsubscribe. */
     onEvent(handler: (event: AgentEvent) => void): () => void;
@@ -143,6 +150,12 @@ export function createClient(transport: ClientTransport): OttercodeClient {
       submit(request: AgentSubmitRequest) {
         return invoke(
           AGENT_SUBMIT_CHANNEL,
+          request,
+        ) as Promise<AgentSubmitResult>;
+      },
+      submitSelection(request: AgentSelectionSubmitRequest) {
+        return invoke(
+          AGENT_SUBMIT_SELECTION_CHANNEL,
           request,
         ) as Promise<AgentSubmitResult>;
       },

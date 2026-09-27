@@ -3,12 +3,13 @@ import type {
   AgentModelInfo,
   AgentProviderInfo,
   AgentReconfigResult,
+  AgentSelectionSubmitRequest,
   AgentSetThinkingResult,
   AgentSubmitRequest,
   AgentSubmitResult,
   AgentThinkingLevel,
 } from "../../shared/ipc/agent.js";
-import { composePrompt } from "./compose-prompt.js";
+import { composePrompt, composeSelectionPrompt } from "./compose-prompt.js";
 import type {
   AgentPermissionDecision,
   AgentProvider,
@@ -103,6 +104,16 @@ export class AgentService {
     // Prompt composition (message + editor edits -> prompt text) lives
     // behind the compose-prompt seam; this stays a mechanical delegator.
     this.session.send(composePrompt(request));
+    return { ok: true };
+  }
+
+  /** The focused-turn twin of submit: same mechanical delegation, the
+   * selection-format entry of the compose-prompt seam. Same session,
+   * same event stream — a selection turn is still a turn. */
+  async submitSelection(
+    request: AgentSelectionSubmitRequest,
+  ): Promise<AgentSubmitResult> {
+    this.session.send(composeSelectionPrompt(request));
     return { ok: true };
   }
 

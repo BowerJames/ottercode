@@ -1,5 +1,7 @@
 import type {
   AgentFileEdit,
+  AgentSelection,
+  AgentSelectionSubmitRequest,
   AgentSubmitRequest,
   AgentTerminalRun,
 } from "../../shared/ipc/agent.js";
@@ -10,6 +12,12 @@ import type {
  * string handed to the session. The one place prompt format lives —
  * format experiments rewrite the inside of this module and nothing
  * else moves (wire, client, and service are format-blind).
+ *
+ * Two entry points, one per turn kind on the wire: composePrompt for
+ * composer turns (below) and composeSelectionPrompt for focused
+ * turns (message + one selection, never attachments — the request
+ * type has no fields for them, so this function is total over its
+ * input with no dead branches).
  *
  * v1 adapter: message first, verbatim — or absent entirely, when the
  * turn rides on attachments alone (the framings below then stand
@@ -64,6 +72,35 @@ export function composePrompt(request: AgentSubmitRequest): string {
     }
   }
   return sections.join("\n");
+}
+
+/**
+ * The focused-turn entry point: message (verbatim, first — or absent
+ * entirely when the turn rides on the selection alone) plus the
+ * selection as path + fenced text. The framing states the same
+ * load-bearing fact as the edits framing: the text comes from the
+ * user's editor buffer, which may be ahead of disk — the session's
+ * read tools hit disk and would otherwise contradict it.
+ */
+export function composeSelectionPrompt(
+  request: AgentSelectionSubmitRequest,
+): string {
+  const sections: string[] = [];
+  if (request.message.length > 0) {
+    sections.push(request.message);
+  }
+  sections.push(...selectionSection(request.selection));
+  return sections.join("\n");
+}
+
+function selectionSection(selection: AgentSelection): string[] {
+  return [
+    "",
+    `The user selected this text in \`${selection.path}\` in the editor and is asking about it. It may reflect unsaved edits — the file on disk can differ:`,
+    "```",
+    selection.text,
+    "```",
+  ];
 }
 
 /** One terminal run, pi's phrasing: the command, its output fenced,

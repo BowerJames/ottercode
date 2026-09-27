@@ -60,8 +60,37 @@ export type AgentSubmitRequest = {
 };
 
 /**
- * Response for AGENT_SUBMIT_CHANNEL. Fire-and-forget semantics: the
- * turn's outcome arrives as events on AGENT_EVENTS_CHANNEL.
+ * One editor selection riding on a focused turn: the file and the
+ * highlighted text, verbatim. Semantic payload by design — the same
+ * clause as AgentFileEdit: the wire never carries rendered prompt
+ * text; formatting is main's policy (compose-prompt).
+ */
+export type AgentSelection = {
+  /** Absolute path of the file the text was selected in. */
+  path: string;
+  /** The selected text, verbatim. */
+  text: string;
+};
+
+/**
+ * Request for AGENT_SUBMIT_SELECTION_CHANNEL. A focused turn: the
+ * user's message about ONE selection. The exclusivity is structural —
+ * this type has no fields for file edits or terminal runs, and a
+ * selection turn never carries them (unlike AgentSubmitRequest, whose
+ * attachments are the composer's gather).
+ */
+export type AgentSelectionSubmitRequest = {
+  /** The user's message for this turn. May be empty — the selection
+   * alone is a valid "look at this" turn. */
+  message: string;
+  selection: AgentSelection;
+};
+
+/**
+ * Response for AGENT_SUBMIT_CHANNEL and AGENT_SUBMIT_SELECTION_CHANNEL
+ * (same fire-and-forget shape for both turn kinds — one result serves
+ * two channels, as AgentReconfigResult serves three). The turn's
+ * outcome arrives as events on AGENT_EVENTS_CHANNEL.
  */
 export type AgentSubmitResult = { ok: true };
 

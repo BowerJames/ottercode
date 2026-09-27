@@ -2,6 +2,7 @@ import { ipcMain } from "electron";
 import type {
   AgentProviderInfo,
   AgentReconfigResult,
+  AgentSelectionSubmitRequest,
   AgentSetThinkingResult,
   AgentSubmitRequest,
   AgentSubmitResult,
@@ -17,6 +18,7 @@ import {
   AGENT_SET_PROVIDER_CHANNEL,
   AGENT_SET_THINKING_CHANNEL,
   AGENT_SUBMIT_CHANNEL,
+  AGENT_SUBMIT_SELECTION_CHANNEL,
 } from "../../shared/ipc/channels.js";
 import type { AgentService } from "../agent/agent-service.js";
 
@@ -30,6 +32,14 @@ export function registerAgentIpc(service: AgentService): void {
     AGENT_SUBMIT_CHANNEL,
     (_event, request: AgentSubmitRequest): Promise<AgentSubmitResult> =>
       service.submit(request),
+  );
+
+  ipcMain.handle(
+    AGENT_SUBMIT_SELECTION_CHANNEL,
+    (
+      _event,
+      request: AgentSelectionSubmitRequest,
+    ): Promise<AgentSubmitResult> => service.submitSelection(request),
   );
 
   ipcMain.handle(AGENT_ABORT_CHANNEL, (): void => service.abort());

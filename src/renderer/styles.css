@@ -563,6 +563,119 @@ body {
   overflow: hidden;
 }
 
+/* --- selection context menu (send to agent) --- */
+
+.selection-menu {
+  position: fixed;
+  z-index: 30;
+  padding: 4px;
+  background: #252526;
+  border: 1px solid #3c3c3c;
+  border-radius: 4px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+}
+
+.selection-menu-item {
+  display: block;
+  width: 100%;
+  padding: 4px 8px;
+  border: none;
+  border-radius: 3px;
+  background: none;
+  color: #d4d4d4;
+  font: inherit;
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.selection-menu-item:hover {
+  background: #37373d;
+  color: #e8e8e8;
+}
+
+.selection-prompt {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.selection-prompt-context {
+  font-size: 11px;
+  color: #9a9a9a;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.selection-prompt-input {
+  padding: 6px 8px;
+  background: #1e1e1e;
+  color: #d4d4d4;
+  border: 1px solid #3c3c3c;
+  border-radius: 4px;
+  font: inherit;
+  font-size: 12px;
+  line-height: 1.45;
+  resize: none;
+}
+
+.selection-prompt-input:focus {
+  outline: none;
+  border-color: #4f7cc4;
+}
+
+.selection-prompt-input:disabled {
+  opacity: 0.6;
+}
+
+.selection-prompt-row {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+.selection-prompt-cancel,
+.selection-prompt-send {
+  padding: 3px 10px;
+  border-radius: 4px;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.selection-prompt-cancel {
+  border: 1px solid #444;
+  background: transparent;
+  color: #9a9a9a;
+}
+
+.selection-prompt-cancel:hover {
+  border-color: #4f7cc4;
+  color: #d4d4d4;
+}
+
+.selection-prompt-send {
+  border: none;
+  background: #2d4f8f;
+  color: #e8e8e8;
+}
+
+.selection-prompt-send:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.chat-user-selection {
+  margin-top: 4px;
+  font-size: 11px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  opacity: 0.8;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 .agent-rail-pickers .combo {
   flex: 1;
   min-width: 120px;

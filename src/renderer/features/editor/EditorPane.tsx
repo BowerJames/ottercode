@@ -5,9 +5,14 @@ import {
   keymap,
   lineNumbers,
 } from "@codemirror/view";
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { FsErrorCode } from "../../../shared/ipc/fs";
 import { useFileTree } from "../file-tree/use-file-tree";
+import { SelectionMenu } from "./SelectionMenu";
+import {
+  type SelectionMenuRequest,
+  selectionMenuRequest,
+} from "./selection-request";
 import { useEditor } from "./use-editor";
 
 /** The error surface: distinct messages per code. Presentation, not
@@ -87,9 +92,17 @@ export function EditorPane() {
  * The CodeMirror surface for one document. Keyed by path at the call
  * site, so a document switch remounts; within a mount the editor owns
  * its own state and streams changes up to the store.
+ *
+ * Right-clicking a non-empty selection opens the send-to-agent menu
+ * (the open/close decision lives in selection-request); an empty
+ * selection falls through to native behavior.
  */
 function EditorDocument({ path, initial }: { path: string; initial: string }) {
   const hostRef = useRef<HTMLDivElement | null>(null);
+  const viewRef = useRef<CodeMirrorView | null>(null);
+  const [menuRequest, setMenuRequest] = useState<SelectionMenuRequest | null>(
+    null,
+  );
   const edit = useEditor((s) => s.edit);
   // Capture once per mount: re-renders pass the latest store content,
   // but the editor must not be rebuilt mid-edit.
@@ -116,12 +129,42 @@ function EditorDocument({ path, initial }: { path: string; initial: string }) {
         }),
       ],
     });
+    viewRef.current = view;
     return () => {
       view.destroy();
+      viewRef.current = null;
     };
   }, [edit, initialDoc, path]);
 
-  return <div ref={hostRef} className="editor-host" />;
+  return (
+    <>
+      {/* biome-ignore lint/a11y/noStaticElementInteractions: a pointer-only affordance by design — right-click has no keyboard equivalent, and CodeMirror (not this host div) owns the keyboard semantics inside. */}
+      <div
+        ref={hostRef}
+        className="editor-host"
+        onContextMenu={(e) => {
+          const view = viewRef.current;
+          if (view === null) return;
+          const main = view.state.selection.main;
+          const request = selectionMenuRequest(
+            path,
+            main,
+            view.state.sliceDoc(main.from, main.to),
+            { x: e.clientX, y: e.clientY },
+          );
+          if (request === null) return; // empty selection: native path
+          e.preventDefault();
+          setMenuRequest(request);
+        }}
+      />
+      {menuRequest !== null && (
+        <SelectionMenu
+          request={menuRequest}
+          onClose={() => setMenuRequest(null)}
+        />
+      )}
+    </>
+  );
 }
 
 const editorTheme = CodeMirrorView.theme(

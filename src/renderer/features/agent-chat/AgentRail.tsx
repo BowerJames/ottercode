@@ -199,6 +199,14 @@ function TranscriptRow({ entry }: { entry: TranscriptEntry }) {
           {entry.message.length > 0
             ? entry.message
             : "(no message — attachments sent)"}
+          {entry.selectionPath !== undefined && (
+            <div
+              className="chat-user-selection"
+              title="the selection this turn is about"
+            >
+              selection: {entry.selectionPath}
+            </div>
+          )}
         </div>
       );
     case "assistant":

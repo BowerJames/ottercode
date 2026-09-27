@@ -2,6 +2,7 @@ import { create, type StoreApi, type UseBoundStore } from "zustand";
 import type {
   AgentFileEdit,
   AgentModelInfo,
+  AgentSelection,
   AgentTerminalRun,
   AgentThinkingInfo,
   AgentThinkingLevel,
@@ -12,6 +13,7 @@ import type { OttercodeClient } from "../../../shared/ipc/client";
 export type AgentChatClient = Pick<
   OttercodeClient["agent"],
   | "submit"
+  | "submitSelection"
   | "abort"
   | "onEvent"
   | "provider"
@@ -25,7 +27,14 @@ export type AgentChatClient = Pick<
  * deltas append-only (contract clause); the rail renders entry.text.
  * Ids are stable React keys — entries append, never reorder. */
 export type TranscriptEntry =
-  | { id: number; kind: "user"; message: string }
+  | {
+      id: number;
+      kind: "user";
+      message: string;
+      /** Set on selection turns: the file the selection came from —
+       * the rail renders it as a provenance marker. */
+      selectionPath?: string;
+    }
   | { id: number; kind: "assistant"; text: string }
   | { id: number; kind: "tool"; name: string }
   | { id: number; kind: "error"; message: string };
@@ -74,6 +83,14 @@ export type AgentChatState = {
     edits?: AgentFileEdit[],
     terminalRuns?: AgentTerminalRun[],
   ): Promise<void>;
+  /** Submits a focused turn: the message plus ONE editor selection,
+   * and nothing else — no edits are gathered (the include-edits gate
+   * does not apply) and no tracked runs attach or DRAIN (queued runs
+   * stay queued for the next composer send). Appends the user entry
+   * with the selection's path as its provenance marker. Ignored while
+   * a turn is working, same guard as send. Settles only after the
+   * store reflects the outcome. */
+  sendSelection(message: string, selection: AgentSelection): Promise<void>;
   abort(): void;
   /** Swaps the agent provider: new session, cleared transcript.
    * Failure keeps everything — the old session keeps running. */
@@ -197,6 +214,26 @@ export function createAgentChatStore(
             // Runs are events, told once: an accepted send drains the
             // buffer. A refusal keeps them queued for the next send.
             trackedRuns: [],
+          }));
+        }
+      },
+
+      async sendSelection(message, selection) {
+        if (get().status === "working") return;
+        const result = await agent.submitSelection({ message, selection });
+        if (result.ok) {
+          // No trackedRuns touch here — deliberate: a focused turn
+          // neither attaches nor drains the queue (see the doc above).
+          set((s) => ({
+            entries: [
+              ...s.entries,
+              {
+                id: id(),
+                kind: "user",
+                message,
+                selectionPath: selection.path,
+              },
+            ],
           }));
         }
       },

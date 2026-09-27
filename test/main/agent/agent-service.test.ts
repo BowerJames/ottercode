@@ -60,6 +60,22 @@ describe("AgentService", () => {
     expect(typeof pi.sentPrompts[0]).toBe("string");
   });
 
+  // Consumed by the store's sendSelection action (the editor's
+  // SelectionMenu chain): the focused-turn twin of submit above.
+  it("submitSelection hands a prompt string to the session and reports acceptance", async () => {
+    const { pi, service } = await makeService();
+
+    const result = await service.submitSelection({
+      message: "what does this do?",
+      selection: { path: "/ws/a.ts", text: "const x = 1;" },
+    });
+
+    // Same delegation-only clause: SOME string reaches the session.
+    expect(result).toEqual({ ok: true });
+    expect(pi.sentPrompts).toHaveLength(1);
+    expect(typeof pi.sentPrompts[0]).toBe("string");
+  });
+
   it("abort reaches the session", async () => {
     const { pi, service } = await makeService();
 

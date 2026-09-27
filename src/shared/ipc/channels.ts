@@ -28,6 +28,11 @@ export const TERMINAL_EVENTS_CHANNEL = "terminal:events";
 /** Request/response: submit a turn to the coding agent. */
 export const AGENT_SUBMIT_CHANNEL = "agent:submit";
 
+/** Request/response: submit a focused turn about one editor
+ * selection — never carries edits or terminal runs (see
+ * AgentSelectionSubmitRequest). */
+export const AGENT_SUBMIT_SELECTION_CHANNEL = "agent:submitSelection";
+
 /** Request/response: cancel the agent's current turn. */
 export const AGENT_ABORT_CHANNEL = "agent:abort";
 
