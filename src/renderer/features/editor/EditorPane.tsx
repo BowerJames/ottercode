@@ -181,19 +181,26 @@ export function EditorPane() {
         )
       ) : activePath !== null && virtualDoc !== undefined ? (
         // Virtual docs: assistant drafts are EDITABLE markdown
-        // surfaces (the toggle above); user snapshots are read-only
+        // surfaces (the toggle above swaps them between rendered and
+        // source, same policy as files); user snapshots are read-only
         // plain text. Neither gets the selection menu — its request
         // carries the path across the IPC contract, and a synthetic
         // key must never cross (drafts ride as message edits, not
         // selections).
-        <EditorDocument
-          // Same remount contract as working copies: key:revision —
-          // a refreshed snapshot or a reset rebuilds the surface.
-          key={`${activePath}:${virtualDoc.revision}`}
-          path={activePath}
-          initial={virtualDoc.content}
-          readonly={!virtualDoc.draft}
-        />
+        showPreview ? (
+          <div className="markdown-preview">
+            <Markdown text={virtualDoc.content} />
+          </div>
+        ) : (
+          <EditorDocument
+            // Same remount contract as working copies: key:revision —
+            // a refreshed snapshot or a reset rebuilds the surface.
+            key={`${activePath}:${virtualDoc.revision}`}
+            path={activePath}
+            initial={virtualDoc.content}
+            readonly={!virtualDoc.draft}
+          />
+        )
       ) : (
         <div className="editor-empty">Select a file to view and edit it</div>
       )}
