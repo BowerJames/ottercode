@@ -11,6 +11,11 @@ import { useAgentChat } from "./use-agent-chat";
  * main's compose-prompt is the how-it-renders policy). Disabled while
  * a turn is working; stop aborts.
  *
+ * A turn needs a message OR pending attachments: sends go out with an
+ * empty message when edits will attach or tracked runs are queued —
+ * the attachments carry the turn (compose-prompt renders them
+ * stand-alone).
+ *
  * Enter sends; Shift+Enter inserts a newline. The textarea grows with
  * its content (CSS `field-sizing: content`) up to half the window height,
  * then scrolls internally — the editor pane yields the space.
@@ -19,10 +24,20 @@ export function Composer() {
   const status = useAgentChat((s) => s.status);
   const send = useAgentChat((s) => s.send);
   const abort = useAgentChat((s) => s.abort);
+  const includeEdits = useAgentChat((s) => s.includeEdits);
+  const trackedRuns = useAgentChat((s) => s.trackedRuns);
+  const editCount = useEditor((s) => collectEdits(s.workingCopies).length);
   const [text, setText] = useState("");
 
   const working = status === "working";
-  const canSend = !working && text.trim().length > 0;
+  // The gate mirrors the gather in submit exactly: edits count only
+  // while the include-edits gate is on, tracked runs always (they were
+  // gated at record time). Gate and gather must never disagree.
+  const canSend =
+    !working &&
+    (text.trim().length > 0 ||
+      (includeEdits && editCount > 0) ||
+      trackedRuns.length > 0);
 
   const submit = () => {
     if (!canSend) return;

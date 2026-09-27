@@ -192,7 +192,15 @@ function SwitchError() {
 function TranscriptRow({ entry }: { entry: TranscriptEntry }) {
   switch (entry.kind) {
     case "user":
-      return <div className="chat-entry chat-user">{entry.message}</div>;
+      return (
+        <div className="chat-entry chat-user">
+          {/* Attachment-only turn: the composer sends edits/tracked runs
+              with no message — show a marker, not an empty bubble. */}
+          {entry.message.length > 0
+            ? entry.message
+            : "(no message — attachments sent)"}
+        </div>
+      );
     case "assistant":
       return <div className="chat-entry chat-assistant">{entry.text}</div>;
     case "tool":

@@ -109,6 +109,23 @@ describe("createAgentChatStore", () => {
     });
   });
 
+  it("send accepts an empty message — the turn rides on attachments alone", async () => {
+    const { harness, store } = makeStore();
+    harness.responses.set(AGENT_SUBMIT_CHANNEL, { ok: true });
+    const edits = [{ path: "/ws/a.ts", original: "old", edited: "new" }];
+
+    await store.getState().send("", edits, []);
+
+    // Consumer: the composer enables send for pending attachments
+    // with an empty composer — the store must not reject the empty
+    // message, or those turns could never leave the UI.
+    expect(store.getState().entries).toEqual([
+      { id: expect.any(Number), kind: "user", message: "" },
+    ]);
+    const call = harness.calls.find((c) => c.channel === AGENT_SUBMIT_CHANNEL);
+    expect(call?.payload).toEqual({ message: "", edits, terminalRuns: [] });
+  });
+
   it("abort forwards to the client", () => {
     const { harness, store } = makeStore();
 

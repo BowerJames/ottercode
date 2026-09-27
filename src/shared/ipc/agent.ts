@@ -51,7 +51,9 @@ export type AgentTerminalRun = {
  * current state). Both are empty when none.
  */
 export type AgentSubmitRequest = {
-  /** The user's message for this turn. */
+  /** The user's message for this turn. May be empty — the turn then
+   * rides on `edits` and/or `terminalRuns` alone (attachments make
+   * a valid turn); a request empty in all three is never made. */
   message: string;
   edits: AgentFileEdit[];
   terminalRuns: AgentTerminalRun[];

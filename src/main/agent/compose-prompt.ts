@@ -11,7 +11,10 @@ import type {
  * format experiments rewrite the inside of this module and nothing
  * else moves (wire, client, and service are format-blind).
  *
- * v1 adapter: message first, verbatim; then terminal runs pi-style
+ * v1 adapter: message first, verbatim — or absent entirely, when the
+ * turn rides on attachments alone (the framings below then stand
+ * without one and never reference a message that isn't there); then
+ * terminal runs pi-style
  * (Ran `cmd` + fenced output + exit annotations) under a framing
  * that marks them as USER-initiated — load-bearing here because we
  * inline runs into one prompt where pi injects them as separate
@@ -30,20 +33,31 @@ import type {
 const MAX_DIFF_LINES = 1000;
 
 export function composePrompt(request: AgentSubmitRequest): string {
-  const sections = [request.message];
+  const sections: string[] = [];
+  if (request.message.length > 0) {
+    sections.push(request.message);
+  }
   if (request.terminalRuns.length > 0) {
+    if (sections.length > 0) {
+      sections.push("");
+    }
+    const intro =
+      request.message.length > 0
+        ? "Before sending this message, the user ran these commands in the editor's terminal."
+        : "The user ran these commands in the editor's terminal.";
     sections.push(
-      "",
-      "Before sending this message, the user ran these commands in the editor's terminal. The user ran them directly — they are not your tool calls:",
+      `${intro} The user ran them directly — they are not your tool calls:`,
     );
     for (const run of request.terminalRuns) {
       sections.push(...runSection(run));
     }
   }
   if (request.edits.length > 0) {
+    if (sections.length > 0) {
+      sections.push("");
+    }
     sections.push(
-      "",
-      "The user has also edited these files in the editor. These edits exist only in the user's editor — the files on disk still have the old content shown as `-` lines. Treat the `+` lines as the user's current intent:",
+      "The user has edited these files in the editor. These edits exist only in the user's editor — the files on disk still have the old content shown as `-` lines. Treat the `+` lines as the user's current intent:",
     );
     for (const edit of request.edits) {
       sections.push(...fileSection(edit));

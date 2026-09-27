@@ -63,9 +63,12 @@ export type AgentChatState = {
   trackedRuns: AgentTerminalRun[];
   /** Appends the user entry (the raw message — the rail shows what
    * the user typed, never the composed prompt) and submits the turn
-   * with the caller-gathered edits and terminal runs. Ignored while
-   * a turn is working. Settles only after the store reflects the
-   * outcome; an accepted send drains the tracked-run buffer. */
+   * with the caller-gathered edits and terminal runs. An empty
+   * message is a legal turn — the attachments carry it (the composer
+   * gates that; this store adds no emptiness guard of its own).
+   * Ignored while a turn is working. Settles only after the store
+   * reflects the outcome; an accepted send drains the tracked-run
+   * buffer. */
   send(
     message: string,
     edits?: AgentFileEdit[],
