@@ -78,8 +78,8 @@ const OSC_ANSI = /\u001B\][\s\S]*?(?:\u0007|\u001B\\|\u009C)/g;
 /** CSI and friends: ESC/C1, optional intermediates/params, final
  * byte (after ansi-regex — whose final class includes digits, so a
  * sequence ending in a param digit can falsely look complete). */
-// biome-ignore lint/suspicious/noControlCharactersInRegex: see OSC_ANSI — the ESC/C1 introducers are the point.
 const CSI_ANSI =
+  // biome-ignore lint/suspicious/noControlCharactersInRegex: see OSC_ANSI — the ESC/C1 introducers are the point.
   /[\u001B\u009B][[\]()#;?]*(?:\d{1,4}(?:[;:]\d{0,4})*)?[\dA-PR-TZcf-nq-uy=><~]/g;
 
 const stripAnsi = (text: string): string =>

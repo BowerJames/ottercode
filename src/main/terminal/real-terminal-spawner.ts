@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process";
-import type { SpawnedProcess, TerminalSpawner } from "./terminal-spawner.js";
+import type { TerminalSpawner } from "./terminal-spawner.js";
 
 /**
  * The production adapter for the TerminalSpawner seam: the only place

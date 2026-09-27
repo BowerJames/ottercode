@@ -1,7 +1,7 @@
 import { defaultKeymap, history, historyKeymap } from "@codemirror/commands";
 import {
-  drawSelection,
   EditorView as CodeMirrorView,
+  drawSelection,
   keymap,
   lineNumbers,
 } from "@codemirror/view";
