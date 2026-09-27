@@ -109,7 +109,6 @@ describe("createAgentChatStore", () => {
     });
   });
 
-
   it("abort forwards to the client", () => {
     const { harness, store } = makeStore();
 
