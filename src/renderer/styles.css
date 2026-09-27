@@ -541,6 +541,29 @@ body {
   font-size: 10px;
 }
 
+.editor-revert {
+  margin-left: auto;
+  padding: 1px 8px;
+  border: 1px solid #444;
+  border-radius: 4px;
+  background: transparent;
+  color: #9a9a9a;
+  font-size: 11px;
+  line-height: 1.4;
+  cursor: pointer;
+}
+
+.editor-revert:hover {
+  border-color: #7a2d2d;
+  color: #f0b0b0;
+}
+
+.tree-dirty-dot {
+  color: #e2c08d;
+  font-size: 10px;
+  margin-left: 4px;
+}
+
 .editor-error {
   padding: 8px 12px;
   background: #5a1d1d;

@@ -51,6 +51,7 @@ export function EditorPane() {
     s.activePath === null ? undefined : s.workingCopies[s.activePath],
   );
   const openError = useEditor((s) => s.openError);
+  const reset = useEditor((s) => s.reset);
 
   const showError =
     openError !== null && openError.path === (selected?.path ?? null);
@@ -70,6 +71,20 @@ export function EditorPane() {
               ●
             </span>
           )}
+          {/* Rendered only while dirty, like the dot it answers. Reset is
+              the store's remount signal: the key below rebuilds the
+              surface from the restored snapshot. Undo history drops —
+              reset means discard, not another edit. */}
+          {dirty && (
+            <button
+              type="button"
+              className="editor-revert"
+              title="discard your edits — restore the content as loaded"
+              onClick={() => reset(activePath)}
+            >
+              revert
+            </button>
+          )}
         </div>
       )}
       {showError && openError !== null && (
@@ -77,7 +92,9 @@ export function EditorPane() {
       )}
       {activePath !== null && workingCopy !== undefined ? (
         <EditorDocument
-          key={activePath}
+          // path:revision — a reset bumps the revision and remounts the
+          // document from the restored snapshot (see store.reset).
+          key={`${activePath}:${workingCopy.revision}`}
           path={activePath}
           initial={workingCopy.content}
         />

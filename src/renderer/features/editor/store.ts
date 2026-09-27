@@ -15,6 +15,10 @@ export type WorkingCopy = {
   original: string;
   /** Current in-memory text. */
   content: string;
+  /** Bumped only by reset — the editor's remount signal: the document
+   * key is path:revision, so a reset rebuilds the CodeMirror surface
+   * from the restored content (dropping undo history, by design). */
+  revision: number;
 };
 
 /** Last failed open, for the error surface. */
@@ -36,6 +40,14 @@ export type EditorState = {
   open(path: string): Promise<void>;
   /** Replaces the in-memory content of an open working copy. */
   edit(path: string, content: string): void;
+  /** Restores the load-time snapshot: content := original, revision
+   * bumps. The bump is the remount signal — the editor's document key
+   * consumes it, so the surface rebuilds from the restored content.
+   * `original` stands: it remains the diff base for the next edit
+   * cycle. No-op for a path with no copy — reset never creates one.
+   * Not a disk re-read: disk may have moved on since load; this
+   * undoes the USER's edits to what they saw. */
+  reset(path: string): void;
 };
 
 export type UseEditorStore = UseBoundStore<StoreApi<EditorState>>;
@@ -64,7 +76,11 @@ export function createEditorStore(fs: EditorFs): UseEditorStore {
         set((s) => ({
           workingCopies: {
             ...s.workingCopies,
-            [path]: { original: result.content, content: result.content },
+            [path]: {
+              original: result.content,
+              content: result.content,
+              revision: 0,
+            },
           },
           activePath: path,
           openError: null,
@@ -83,6 +99,23 @@ export function createEditorStore(fs: EditorFs): UseEditorStore {
           workingCopies: {
             ...s.workingCopies,
             [path]: { ...copy, content },
+          },
+        };
+      });
+    },
+
+    reset(path) {
+      set((s) => {
+        const copy = s.workingCopies[path];
+        if (copy === undefined) return s; // no phantom copies on reset
+        return {
+          workingCopies: {
+            ...s.workingCopies,
+            [path]: {
+              ...copy,
+              content: copy.original,
+              revision: copy.revision + 1,
+            },
           },
         };
       });
