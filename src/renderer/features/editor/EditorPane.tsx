@@ -1,5 +1,6 @@
 import { defaultKeymap, history, historyKeymap } from "@codemirror/commands";
 import {
+  drawSelection,
   EditorView as CodeMirrorView,
   keymap,
   lineNumbers,
@@ -104,6 +105,9 @@ function EditorDocument({ path, initial }: { path: string; initial: string }) {
         lineNumbers(),
         history(),
         keymap.of([...defaultKeymap, ...historyKeymap]),
+        // Draws the caret and selection ourselves: the native caret is
+        // black and hairline-thin — invisible on the dark background.
+        drawSelection(),
         editorTheme,
         CodeMirrorView.updateListener.of((update) => {
           if (update.docChanged) {
@@ -138,6 +142,10 @@ const editorTheme = CodeMirrorView.theme({
   },
   ".cm-activeLine": { backgroundColor: "rgba(255,255,255,0.04)" },
   ".cm-activeLineGutter": { backgroundColor: "rgba(255,255,255,0.06)" },
+  ".cm-cursor": { borderLeft: "2px solid #ffffff" },
+  ".cm-selectionBackground": {
+    backgroundColor: "rgba(79, 124, 196, 0.45)",
+  },
 });
 
 function basename(path: string): string {
