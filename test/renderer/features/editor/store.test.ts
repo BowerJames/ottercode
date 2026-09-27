@@ -1,324 +1,360 @@
 import { describe, expect, it } from "vitest";
-import { createEditorStore } from "../../../../src/renderer/features/editor/store";
-import { FS_READ_FILE_CHANNEL } from "../../../../src/shared/ipc/channels";
-import { createClient } from "../../../../src/shared/ipc/client";
-import { createFakeTransport } from "../../fake-transport";
+import { collectEdits } from "../../../../src/renderer/features/agent-chat/collect-edits";
+import type { EditorVdoc } from "../../../../src/renderer/features/editor/store";
+import {
+  createEditorStore,
+  vdocKey,
+} from "../../../../src/renderer/features/editor/store";
 
 /**
- * Permanent suite — one test, one consumer: EditorPane renders
- * workingCopies[activePath] (both WorkingCopy fields feed the dirty-dot
- * comparison). Deleted at the promotion review, unconsumed: the entire
- * open-failure surface (openError, previous-doc-stays-active, no
- * phantom copy) — its only consumer is the error banner, which renders
- * text nothing downstream computes with. Presentation is not
- * consumption. The ok-branch itself is compiler-guaranteed (result
- * doesn't narrow without it); re-pin failure effects when a
- * computational consumer arrives.
+ * Permanent suite for the editor's vdoc arms. Consumers: EditorPane
+ * (open/save/reload/sync drive its header, banner, and remounts) and
+ * the use-editor push wiring (syncVdoc is the push entry). Pinned:
+ * the buffer contract — materialization, version-guarded saves with
+ * all three outcomes, push adoption vs conflict flagging, deletion
+ * deactivation — and the STRUCTURAL clause that a design doc can
+ * never appear as a file copy (collectEdits feeding agent:submit
+ * iterates workingCopies only; the routing pin below guards that
+ * guarantee against record mergers). Unpinned: exact error fields
+ * beyond codes, revision counts beyond "bumped when text moved".
  */
 
 function makeStore() {
-  const harness = createFakeTransport();
-  const store = createEditorStore(createClient(harness.transport).fs);
-  return { harness, store };
+  const docs = new Map<string, { content: string; version: number }>();
+  const updates: Array<{
+    name: string;
+    content: string;
+    expectedVersion: number;
+  }> = [];
+  const vdoc: EditorVdoc = {
+    async read(name) {
+      const doc = docs.get(name);
+      return doc === undefined
+        ? { ok: false as const, error: { code: "not-found" as const } }
+        : { ok: true as const, content: doc.content, version: doc.version };
+    },
+    async update(name, content, expectedVersion) {
+      updates.push({ name, content, expectedVersion });
+      const doc = docs.get(name);
+      if (doc === undefined) {
+        return { ok: false as const, error: { code: "not-found" as const } };
+      }
+      if (doc.version !== expectedVersion) {
+        return { ok: false as const, error: { code: "conflict" as const } };
+      }
+      doc.content = content;
+      doc.version += 1;
+      return { ok: true as const, doc: { name, version: doc.version } };
+    },
+  };
+  const fs = {
+    async readFile() {
+      return { ok: false as const, error: { code: "not-found" as const } };
+    },
+  };
+  const store = createEditorStore(fs, vdoc);
+  return {
+    store,
+    updates,
+    /** Authoritative write from outside this buffer (the agent's tool
+     *  or another renderer flow) — bumps the version behind the
+     *  buffer's back. */
+    authorityWrite(name: string, content: string) {
+      const doc = docs.get(name);
+      if (doc === undefined) {
+        docs.set(name, { content, version: 1 });
+      } else {
+        doc.content = content;
+        doc.version += 1;
+      }
+    },
+  };
 }
 
-describe("createEditorStore", () => {
-  it("open loads a file into a working copy and activates it", async () => {
-    const { harness, store } = makeStore();
-    harness.responses.set(FS_READ_FILE_CHANNEL, {
-      ok: true,
-      content: "fn main() {}",
-    });
+describe("openVdoc", () => {
+  it("materializes a buffer from the authority and activates it", async () => {
+    const { store, authorityWrite } = makeStore();
+    authorityWrite("a.md", "# A");
 
-    await store.getState().open("/ws/main.rs");
+    await store.getState().openVdoc("a.md");
 
-    const s = store.getState();
-    expect(s.activePath).toBe("/ws/main.rs");
-    // revision ships with the copy from birth — part of the copy's
-    // contract (the remount key consumes it), pinned here with the rest.
-    expect(s.workingCopies["/ws/main.rs"]).toEqual({
-      original: "fn main() {}",
-      content: "fn main() {}",
+    const key = vdocKey("a.md");
+    expect(store.getState().activePath).toBe(key);
+    expect(store.getState().vdocBuffers[key]).toEqual({
+      name: "a.md",
+      original: "# A",
+      content: "# A",
+      baseVersion: 1,
       revision: 0,
+      conflict: false,
     });
   });
 
-  // RESET tests (consumed by EditorPane: the revert button dispatches
-  // reset, the dirty dot renders against content !== original, and the
-  // document key consumes revision — a reset that stops bumping it
-  // never reaches the CodeMirror surface, silently):
-  it("reset restores the load-time snapshot: content reverts, original stands, the document stays active", async () => {
-    const { harness, store } = makeStore();
-    harness.responses.set(FS_READ_FILE_CHANNEL, {
-      ok: true,
-      content: "fn main() {}",
-    });
-    await store.getState().open("/ws/main.rs");
-    store.getState().edit("/ws/main.rs", "fn main() { panic!() }");
-
-    store.getState().reset("/ws/main.rs");
-
-    // content snaps back to the snapshot (dot clears, collectEdits
-    // stops attaching) while original survives — it is the diff base
-    // for the NEXT edit cycle, not a consumed one-shot.
-    expect(store.getState().workingCopies["/ws/main.rs"]).toEqual({
-      original: "fn main() {}",
-      content: "fn main() {}",
-      revision: 1,
-    });
-    // Reset is a state operation, not navigation: the key change remounts
-    // the SAME document rather than unmounting it for another.
-    expect(store.getState().activePath).toBe("/ws/main.rs");
-  });
-
-  it("reset bumps the revision — the remount signal", async () => {
-    const { harness, store } = makeStore();
-    harness.responses.set(FS_READ_FILE_CHANNEL, { ok: true, content: "a" });
-    await store.getState().open("/ws/a.ts");
-    store.getState().edit("/ws/a.ts", "b");
-
-    store.getState().reset("/ws/a.ts");
-    store.getState().edit("/ws/a.ts", "c");
-    store.getState().reset("/ws/a.ts");
-
-    // Two resets, two bumps: each bump is one remount keyed on
-    // path:revision. A lost bump is a lost remount — the second reset
-    // above would leave "c" on screen.
-    expect(store.getState().workingCopies["/ws/a.ts"]?.revision).toBe(2);
-    expect(store.getState().workingCopies["/ws/a.ts"]?.content).toBe("a");
-  });
-
-  it("reset of an unopened path is a no-op — no phantom copy is created", () => {
+  it("fails without activating: vdocError records the code", async () => {
     const { store } = makeStore();
 
-    store.getState().reset("/ws/never-opened.ts");
+    await store.getState().openVdoc("ghost.md");
 
-    expect(
-      store.getState().workingCopies["/ws/never-opened.ts"],
-    ).toBeUndefined();
-    expect(store.getState().activePath).toBeNull(); // untouched
-  });
-});
-
-// VIRTUAL DOCUMENTS (consumed by the agent rail's double-click: an
-// assistant message opens as an editable markdown draft, a user
-// message as a read-only snapshot). The record's separation from
-// workingCopies is the load-bearing wall: collectEdits gathers dirty
-// working copies into agent:submit, and a synthetic key crossing that
-// contract would reach main's disk writer.
-describe("createEditorStore — virtual documents", () => {
-  it("openVirtual activates a document without touching the fs", () => {
-    const { harness, store } = makeStore();
-
-    store.getState().openVirtual({
-      key: "virtual:chat/7",
-      title: "agent message #7",
-      text: "# hello",
-    });
-
-    const s = store.getState();
-    expect(s.activePath).toBe("virtual:chat/7");
-    expect(s.virtualDocs["virtual:chat/7"]).toEqual({
-      title: "agent message #7",
-      draft: false,
-      original: "# hello",
-      content: "# hello",
-      revision: 0,
-    });
-    // Never a file copy, never an fs read — a virtual doc has no disk
-    // counterpart by definition.
-    expect(s.workingCopies).toEqual({});
-    expect(harness.calls).toEqual([]);
-  });
-
-  it("reopening a clean doc refreshes the snapshot and focuses — no duplicate", () => {
-    const { store } = makeStore();
-    store.getState().openVirtual({
-      key: "virtual:chat/7",
-      title: "agent message #7",
-      text: "partial",
-    });
-
-    // The message kept streaming after the first open — the reopen
-    // captures the longer text, not a second document.
-    store.getState().openVirtual({
-      key: "virtual:chat/7",
-      title: "agent message #7",
-      text: "partial, now complete",
-    });
-
-    expect(Object.keys(store.getState().virtualDocs)).toEqual([
-      "virtual:chat/7",
-    ]);
-    expect(store.getState().virtualDocs["virtual:chat/7"]?.content).toBe(
-      "partial, now complete",
-    );
-    // The remount signal moved with the text — EditorPane's document
-    // key consumes it, so the surface rebuilds from the new snapshot.
-    expect(store.getState().virtualDocs["virtual:chat/7"]?.revision).toBe(1);
-
-    // Reopening with UNCHANGED text bumps nothing: a refocus keeps
-    // the surface (and its scroll position) standing.
-    store.getState().openVirtual({
-      key: "virtual:chat/7",
-      title: "agent message #7",
-      text: "partial, now complete",
-    });
-    expect(store.getState().virtualDocs["virtual:chat/7"]?.revision).toBe(1);
-  });
-
-  it("edit is a no-op for snapshot keys — they cannot become dirty", () => {
-    const { store } = makeStore();
-    store.getState().openVirtual({
-      key: "virtual:chat/7",
-      title: "agent message #7",
-      text: "snapshot",
-    });
-
-    store.getState().edit("virtual:chat/7", "tampered");
-
-    // The guard chain: edit never touches a snapshot, so it can never
-    // be dirty, so no collector can ever attach it to a turn. If this
-    // pin breaks, a synthetic key rides agent:submit.
-    expect(store.getState().virtualDocs["virtual:chat/7"]?.content).toBe(
-      "snapshot",
-    );
-    expect(store.getState().workingCopies).toEqual({});
-  });
-
-  it("drafts edit: content moves, original stands as the diff base", () => {
-    const { store } = makeStore();
-    store.getState().openVirtual({
-      key: "virtual:chat/7",
-      title: "agent message #7",
-      text: "as the assistant wrote it",
-      draft: true,
-    });
-
-    store.getState().edit("virtual:chat/7", "as the user corrected it");
-
-    const doc = store.getState().virtualDocs["virtual:chat/7"];
-    expect(doc?.content).toBe("as the user corrected it");
-    expect(doc?.original).toBe("as the assistant wrote it");
-    // Still no file copy — a draft's edits ride as message edits,
-    // never as file edits.
-    expect(store.getState().workingCopies).toEqual({});
-  });
-
-  it("drafts reset: content := original, revision bumps (remount)", () => {
-    const { store } = makeStore();
-    store.getState().openVirtual({
-      key: "virtual:chat/7",
-      title: "agent message #7",
-      text: "original",
-      draft: true,
-    });
-    store.getState().edit("virtual:chat/7", "edited");
-
-    store.getState().reset("virtual:chat/7");
-
-    const doc = store.getState().virtualDocs["virtual:chat/7"];
-    expect(doc?.content).toBe("original");
-    expect(doc?.original).toBe("original"); // the diff base stands
-    expect(doc?.revision).toBe(1);
-  });
-
-  it("reopening an EDITED draft never clobbers — the user's work wins", () => {
-    const { store } = makeStore();
-    store.getState().openVirtual({
-      key: "virtual:chat/7",
-      title: "agent message #7",
-      text: "v1",
-      draft: true,
-    });
-    store.getState().edit("virtual:chat/7", "v1 (edited)");
-
-    // The entry kept streaming after the user started editing; the
-    // reopen must not refresh over the user's words.
-    store.getState().openVirtual({
-      key: "virtual:chat/7",
-      title: "agent message #7",
-      text: "v1, fully streamed",
-      draft: true,
-    });
-
-    const doc = store.getState().virtualDocs["virtual:chat/7"];
-    expect(doc?.original).toBe("v1");
-    expect(doc?.content).toBe("v1 (edited)");
-    expect(doc?.revision).toBe(0); // no remount — nothing changed
-  });
-});
-
-// RENAME EDITS + REVEAL (consumed by: the rename flow applying a
-// lang:rename result, collectEdits gathering the resulting dirty set
-// into the next agent:submit, and EditorPane's remount key). Rename
-// is attachment-shaped by contract: open docs keep their own diff
-// base, unopened docs materialize as dirty copies from the edit pair
-// itself — the exact shape collectEdits attaches.
-describe("createEditorStore — applyRenameEdits & reveal", () => {
-  it("applies an edit to an open copy: content replaced, original kept, revision bumps", async () => {
-    const { harness, store } = makeStore();
-    harness.responses.set(FS_READ_FILE_CHANNEL, {
-      ok: true,
-      content: "let foo = 1;",
-    });
-    await store.getState().open("/ws/a.ts");
-
-    store
-      .getState()
-      .applyRenameEdits([
-        { path: "/ws/a.ts", original: "let foo = 1;", edited: "let bar = 1;" },
-      ]);
-
-    // original stands: it stays the diff base the NEXT edit cycle (and
-    // the agent attachment) diffs against — rename is just an edit.
-    expect(store.getState().workingCopies["/ws/a.ts"]).toEqual({
-      original: "let foo = 1;",
-      content: "let bar = 1;",
-      revision: 1,
-    });
-    // Activation is untouched: renaming never navigates.
-    expect(store.getState().activePath).toBe("/ws/a.ts");
-  });
-
-  it("materializes an edit for an unopened file as a dirty copy, without activating", async () => {
-    const { store } = makeStore();
-
-    store
-      .getState()
-      .applyRenameEdits([
-        { path: "/ws/b.ts", original: "let foo;", edited: "let bar;" },
-      ]);
-
-    expect(store.getState().workingCopies["/ws/b.ts"]).toEqual({
-      original: "let foo;",
-      content: "let bar;",
-      revision: 0,
-    });
     expect(store.getState().activePath).toBeNull();
-    // Dirty from birth: the dot shows and collectEdits attaches it —
-    // the unopened file's rename persists through the agent flow.
-    expect(store.getState().workingCopies["/ws/b.ts"]?.content).not.toBe(
-      store.getState().workingCopies["/ws/b.ts"]?.original,
+    expect(store.getState().vdocError).toEqual({
+      name: "ghost.md",
+      code: "not-found",
+    });
+  });
+
+  it("reopen: clean + authority moved → adopt and remount", async () => {
+    const { store, authorityWrite } = makeStore();
+    authorityWrite("a.md", "one");
+    await store.getState().openVdoc("a.md");
+    authorityWrite("a.md", "two");
+
+    await store.getState().openVdoc("a.md");
+
+    const buffer = store.getState().vdocBuffers[vdocKey("a.md")];
+    expect(buffer).toMatchObject({
+      content: "two",
+      original: "two",
+      baseVersion: 2,
+      revision: 1,
+    });
+  });
+
+  it("reopen: dirty → the user's edits win, focus only", async () => {
+    const { store, authorityWrite } = makeStore();
+    authorityWrite("a.md", "one");
+    await store.getState().openVdoc("a.md");
+    store.getState().edit(vdocKey("a.md"), "mine");
+    authorityWrite("a.md", "two");
+
+    await store.getState().openVdoc("a.md");
+
+    const buffer = store.getState().vdocBuffers[vdocKey("a.md")];
+    expect(buffer).toMatchObject({
+      content: "mine",
+      original: "one",
+      baseVersion: 1,
+      revision: 0,
+    });
+  });
+});
+
+describe("edit routing (the structural clause)", () => {
+  it("edits the buffer and never materializes a working copy", () => {
+    const { store, authorityWrite } = makeStore();
+    authorityWrite("a.md", "base");
+    return store
+      .getState()
+      .openVdoc("a.md")
+      .then(() => {
+        store.getState().edit(vdocKey("a.md"), "edited");
+
+        expect(store.getState().vdocBuffers[vdocKey("a.md")]?.content).toBe(
+          "edited",
+        );
+        // The pin: design docs ride NOTHING into agent:submit as files.
+        expect(store.getState().workingCopies).toEqual({});
+        expect(collectEdits(store.getState().workingCopies)).toEqual([]);
+      });
+  });
+});
+
+describe("saveVdoc", () => {
+  it("ok: advances original and baseVersion, clears conflict", async () => {
+    const { store, authorityWrite, updates } = makeStore();
+    authorityWrite("a.md", "one");
+    await store.getState().openVdoc("a.md");
+    store.getState().edit(vdocKey("a.md"), "mine");
+
+    await store.getState().saveVdoc(vdocKey("a.md"));
+
+    expect(updates).toEqual([
+      { name: "a.md", content: "mine", expectedVersion: 1 },
+    ]);
+    expect(store.getState().vdocBuffers[vdocKey("a.md")]).toMatchObject({
+      original: "mine",
+      content: "mine",
+      baseVersion: 2,
+      conflict: false,
+    });
+  });
+
+  it("a clean buffer is a no-op — no version churn, no echo", async () => {
+    const { store, authorityWrite, updates } = makeStore();
+    authorityWrite("a.md", "one");
+    await store.getState().openVdoc("a.md");
+
+    await store.getState().saveVdoc(vdocKey("a.md"));
+
+    expect(updates).toEqual([]);
+  });
+
+  it("conflict: flags the buffer and touches nothing else", async () => {
+    const { store, authorityWrite } = makeStore();
+    authorityWrite("a.md", "one");
+    await store.getState().openVdoc("a.md");
+    store.getState().edit(vdocKey("a.md"), "mine");
+    authorityWrite("a.md", "agent's"); // version 2 behind the buffer's back
+
+    await store.getState().saveVdoc(vdocKey("a.md"));
+
+    expect(store.getState().vdocBuffers[vdocKey("a.md")]).toMatchObject({
+      content: "mine",
+      original: "one",
+      baseVersion: 1,
+      conflict: true,
+    });
+  });
+
+  it("force: rebases onto the authority's current version (overwrite)", async () => {
+    const { store, authorityWrite, updates } = makeStore();
+    authorityWrite("a.md", "one");
+    await store.getState().openVdoc("a.md");
+    store.getState().edit(vdocKey("a.md"), "mine");
+    authorityWrite("a.md", "agent's"); // version 2
+
+    await store.getState().saveVdoc(vdocKey("a.md"), { force: true });
+
+    expect(updates).toEqual([
+      { name: "a.md", content: "mine", expectedVersion: 2 },
+    ]);
+    expect(store.getState().vdocBuffers[vdocKey("a.md")]).toMatchObject({
+      original: "mine",
+      baseVersion: 3,
+      conflict: false,
+    });
+  });
+});
+
+describe("reloadVdoc", () => {
+  it("discards unsaved edits unconditionally and clears conflict", async () => {
+    const { store, authorityWrite } = makeStore();
+    authorityWrite("a.md", "one");
+    await store.getState().openVdoc("a.md");
+    store.getState().edit(vdocKey("a.md"), "mine");
+    authorityWrite("a.md", "agent's"); // the agent wrote behind the buffer
+    store.getState().syncVdoc({
+      kind: "written",
+      name: "a.md",
+      content: "agent's",
+      version: 2,
+      origin: "agent",
+    }); // dirty → conflict
+
+    await store.getState().reloadVdoc(vdocKey("a.md"));
+
+    expect(store.getState().vdocBuffers[vdocKey("a.md")]).toMatchObject({
+      content: "agent's",
+      original: "agent's",
+      baseVersion: 2,
+      revision: 1,
+      conflict: false,
+    });
+  });
+});
+
+describe("syncVdoc (the push entry)", () => {
+  it("clean buffer adopts an agent write, remounting only when text moved", async () => {
+    const { store, authorityWrite } = makeStore();
+    authorityWrite("a.md", "one");
+    await store.getState().openVdoc("a.md");
+
+    store.getState().syncVdoc({
+      kind: "written",
+      name: "a.md",
+      content: "agent's",
+      version: 2,
+      origin: "agent",
+    });
+    const afterWrite = store.getState().vdocBuffers[vdocKey("a.md")];
+    expect(afterWrite).toMatchObject({
+      content: "agent's",
+      baseVersion: 2,
+      revision: 1, // text moved → remount
+    });
+
+    // The echo of the user's own save: same text → no remount.
+    store.getState().syncVdoc({
+      kind: "written",
+      name: "a.md",
+      content: "agent's",
+      version: 2,
+      origin: "user",
+    });
+    expect(store.getState().vdocBuffers[vdocKey("a.md")]?.revision).toBe(
+      afterWrite?.revision,
     );
   });
 
-  it("revealAt records a jump and clearReveal consumes it", () => {
-    const { store } = makeStore();
+  it("dirty buffer flags conflict — nothing clobbers silently", async () => {
+    const { store, authorityWrite } = makeStore();
+    authorityWrite("a.md", "one");
+    await store.getState().openVdoc("a.md");
+    store.getState().edit(vdocKey("a.md"), "mine");
 
-    store
-      .getState()
-      .revealAt({ path: "/ws/a.ts", position: { line: 1, character: 2 } });
-    // The set clause — consumed by EditorDocument's effect, which
-    // scrolls on it and then clears. Nonce freshness is deliberately
-    // unpinned: the effect triggers on object identity, not the nonce.
-    expect(store.getState().reveal).toEqual({
-      path: "/ws/a.ts",
-      position: { line: 1, character: 2 },
-      nonce: expect.any(Number),
+    store.getState().syncVdoc({
+      kind: "written",
+      name: "a.md",
+      content: "agent's",
+      version: 2,
+      origin: "agent",
     });
 
-    store.getState().clearReveal();
-    expect(store.getState().reveal).toBeNull();
+    expect(store.getState().vdocBuffers[vdocKey("a.md")]).toMatchObject({
+      content: "mine",
+      original: "one",
+      baseVersion: 1,
+      conflict: true,
+    });
+  });
+
+  it("deleted: drops the buffer, deactivates if active, spares others", async () => {
+    const { store, authorityWrite } = makeStore();
+    authorityWrite("a.md", "one");
+    authorityWrite("b.md", "two");
+    await store.getState().openVdoc("a.md");
+    await store.getState().openVdoc("b.md");
+    store.getState().edit(vdocKey("a.md"), "unsaved");
+
+    store.getState().syncVdoc({ kind: "deleted", name: "b.md" });
+    // b was ACTIVE: its deletion deactivates; a's buffer is spared.
+    expect(store.getState().activePath).toBeNull();
+    expect(store.getState().vdocBuffers[vdocKey("a.md")]).toBeDefined();
+
+    await store.getState().openVdoc("a.md"); // reactivate (dirty → focus only)
+    store.getState().syncVdoc({ kind: "deleted", name: "a.md" });
+    expect(store.getState().vdocBuffers[vdocKey("a.md")]).toBeUndefined();
+    expect(store.getState().activePath).toBeNull();
+  });
+
+  it("changes for unopened docs are no-ops", () => {
+    const { store } = makeStore();
+
+    store.getState().syncVdoc({
+      kind: "created",
+      name: "ghost.md",
+      content: "x",
+      version: 1,
+      origin: "agent",
+    });
+
+    expect(store.getState().vdocBuffers).toEqual({});
+    expect(store.getState().activePath).toBeNull();
+  });
+});
+
+describe("reset on a vdoc key", () => {
+  it("restores the open-time content with a remount, keeping the stale baseVersion honest", async () => {
+    const { store, authorityWrite } = makeStore();
+    authorityWrite("a.md", "one");
+    await store.getState().openVdoc("a.md");
+    store.getState().edit(vdocKey("a.md"), "mine");
+
+    store.getState().reset(vdocKey("a.md"));
+
+    expect(store.getState().vdocBuffers[vdocKey("a.md")]).toMatchObject({
+      content: "one",
+      original: "one",
+      revision: 1,
+    });
   });
 });

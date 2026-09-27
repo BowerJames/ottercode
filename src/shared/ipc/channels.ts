@@ -64,3 +64,25 @@ export const LANG_RENAME_CHANNEL = "lang:rename";
 
 /** Request/response: completion candidates at a position. */
 export const LANG_COMPLETION_CHANNEL = "lang:completion";
+
+/** Request/response: list all virtual design docs. Cannot fail. */
+export const VDOC_LIST_CHANNEL = "vdoc:list";
+
+/** Request/response: create a virtual design doc with content from
+ * birth (no empty genesis state). */
+export const VDOC_CREATE_CHANNEL = "vdoc:create";
+
+/** Request/response: one virtual design doc's whole content and the
+ * version a later update must name. */
+export const VDOC_READ_CHANNEL = "vdoc:read";
+
+/** Request/response: replace one doc's content — version-guarded
+ * (stale base is a conflict, never a silent clobber). */
+export const VDOC_UPDATE_CHANNEL = "vdoc:update";
+
+/** Request/response: delete one virtual design doc. User-initiated
+ * only — the agent toolset exposes no delete. */
+export const VDOC_DELETE_CHANNEL = "vdoc:delete";
+
+/** Push: the vdoc change stream (main -> renderer). */
+export const VDOC_CHANGED_CHANNEL = "vdoc:changed";

@@ -3,6 +3,7 @@ import {
   createAgentSession,
   ModelRuntime,
   type AgentSession as PiSession,
+  type ToolDefinition,
 } from "@earendil-works/pi-coding-agent";
 import type {
   AgentEvent,
@@ -10,6 +11,7 @@ import type {
   AgentThinkingLevel,
 } from "../../../shared/ipc/agent.js";
 import type {
+  AgentCustomTool,
   AgentProvider,
   AgentSession,
   AgentSessionOptions,
@@ -77,6 +79,7 @@ export const piProvider: AgentProvider = {
   async createSession({
     root,
     model,
+    tools,
   }: AgentSessionOptions): Promise<CreatedAgentSession> {
     const rt = await runtime();
     const resolved =
@@ -88,6 +91,9 @@ export const piProvider: AgentProvider = {
       cwd: root,
       ...(resolved !== undefined ? { model: resolved } : {}),
       modelRuntime: rt,
+      ...(tools !== undefined && tools.length > 0
+        ? { customTools: tools.map(toPiTool) }
+        : {}),
     });
     return {
       session: wrapPiSession(session),
@@ -106,6 +112,37 @@ export const piProvider: AgentProvider = {
     }));
   },
 };
+
+/** Maps a contract tool onto pi's ToolDefinition. Two native
+ *  conventions differ from the seam's, both absorbed here:
+ * - Failure: the seam reports errors as values; pi's convention is a
+ *   thrown Error (pi turns it into a failed tool result, so the
+ *   model still reads the recovery prose).
+ * - Execution: custom tools share mutable in-process state (the vdoc
+ *   store), and pi may run one message's tool calls in parallel —
+ *   sequential keeps read/write composes race-free. */
+function toPiTool(tool: AgentCustomTool): ToolDefinition {
+  return {
+    name: tool.name,
+    label: tool.name,
+    description: tool.description,
+    ...(tool.promptSnippet !== undefined
+      ? { promptSnippet: tool.promptSnippet }
+      : {}),
+    parameters: tool.inputSchema,
+    executionMode: "sequential",
+    async execute(_toolCallId, params) {
+      const result = await tool.execute(params);
+      if (result.isError) {
+        throw new Error(result.output);
+      }
+      return {
+        content: [{ type: "text", text: result.output }],
+        details: undefined,
+      };
+    },
+  };
+}
 
 function wrapPiSession(session: PiSession): AgentSession {
   let handler: ((event: AgentEvent) => void) | undefined;

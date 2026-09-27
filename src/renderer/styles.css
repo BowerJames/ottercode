@@ -1061,3 +1061,153 @@ body.panel-resizing-y {
   flex: 1;
   min-width: 120px;
 }
+
+/* --- vdoc list (sidebar Design section) --- */
+
+.vdoc-list {
+  flex: none;
+  max-height: 35%;
+  overflow-y: auto;
+  border-top: 1px solid #333;
+  padding-bottom: 4px;
+}
+
+.vdoc-adder {
+  padding: 2px 10px;
+}
+
+.vdoc-adder-input {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 3px 6px;
+  border: 1px solid #444;
+  border-radius: 3px;
+  background: #1e1e1e;
+  color: #d4d4d4;
+  font-size: 12px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+.vdoc-adder-input:focus {
+  outline: none;
+  border-color: #4f7cc4;
+}
+
+.vdoc-adder-error {
+  padding-top: 3px;
+  color: #f0b0b0;
+  font-size: 11px;
+}
+
+.vdoc-row {
+  display: flex;
+  align-items: center;
+  margin-right: 6px;
+}
+
+.vdoc-open {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 4px 2px 8px;
+  cursor: pointer;
+  user-select: none;
+  border-radius: 3px;
+  background: none;
+  border: none;
+  color: inherit;
+  font: inherit;
+  font-size: 12px;
+  text-align: left;
+}
+
+.vdoc-open:hover {
+  background: #2a2d2e;
+}
+
+.vdoc-open[data-active="true"] {
+  background: #37373d;
+}
+
+.vdoc-version {
+  margin-left: auto;
+  flex: none;
+  color: #6a6a6a;
+  font-size: 10px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+.vdoc-delete {
+  flex: none;
+  padding: 2px 6px;
+  border: none;
+  border-radius: 3px;
+  background: none;
+  color: transparent;
+  font-size: 12px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.vdoc-row:hover .vdoc-delete {
+  color: #8a8a8a;
+}
+
+.vdoc-delete:hover {
+  color: #f0b0b0;
+  background: #2a2d2e;
+}
+
+/* --- editor: design-doc save + conflict banner --- */
+
+.editor-save {
+  padding: 1px 8px;
+  border: 1px solid #444;
+  border-radius: 4px;
+  background: transparent;
+  color: #9a9a9a;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.editor-save:hover {
+  border-color: #4f7cc4;
+  color: #c8d8f0;
+}
+
+.editor-conflict {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 12px;
+  background: #3a3020;
+  border-bottom: 1px solid #5a4a2a;
+  font-size: 11px;
+  color: #e2c08d;
+}
+
+.editor-conflict-text {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.editor-conflict-action {
+  flex: none;
+  padding: 1px 8px;
+  border: 1px solid #5a4a2a;
+  border-radius: 4px;
+  background: transparent;
+  color: #e2c08d;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.editor-conflict-action:hover {
+  border-color: #8a6d3a;
+  color: #f5dda8;
+}

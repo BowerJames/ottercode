@@ -1,5 +1,7 @@
+import { Type } from "typebox";
 import { describe, expect, it } from "vitest";
 import { AgentService } from "../../../src/main/agent/agent-service.js";
+import type { AgentCustomTool } from "../../../src/main/agent/provider.js";
 import type { AgentEvent } from "../../../src/shared/ipc/agent.js";
 import { createFailingProvider, createFakeProvider } from "./fake-provider.js";
 
@@ -83,6 +85,34 @@ describe("AgentService", () => {
     service.abort();
 
     expect(pi.aborts).toBe(1);
+  });
+
+  // Consumed by index.ts wiring (vdocTools must reach every session
+  // the service creates — a session swap that silently dropped the
+  // tools would strand the model mid-collaboration).
+  it("passes custom tools to every session it creates, including swaps", async () => {
+    const pi = createFakeProvider();
+    const tool: AgentCustomTool = {
+      name: "t_probe",
+      description: "probe",
+      inputSchema: Type.Object({}),
+      async execute() {
+        return { output: "" };
+      },
+    };
+    const service = await AgentService.create(
+      "/ws",
+      { pi: pi.provider },
+      "pi",
+      () => {},
+      [tool],
+    );
+
+    expect(pi.receivedTools).toEqual([[tool]]);
+
+    await service.setModel("fake-2"); // the swap path re-creates
+
+    expect(pi.receivedTools).toEqual([[tool], [tool]]);
   });
 
   it("reports the active provider, its options, the resolved model, and thinking", async () => {

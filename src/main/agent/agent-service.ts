@@ -11,6 +11,7 @@ import type {
 } from "../../shared/ipc/agent.js";
 import { composePrompt, composeSelectionPrompt } from "./compose-prompt.js";
 import type {
+  AgentCustomTool,
   AgentPermissionDecision,
   AgentProvider,
   AgentSession,
@@ -53,6 +54,7 @@ export class AgentService {
   private activeName: string;
   private activeModel: string;
   private activeThinking: AgentThinkingLevel;
+  private readonly tools: readonly AgentCustomTool[];
   private session: AgentSession;
 
   private constructor(
@@ -62,6 +64,7 @@ export class AgentService {
     session: AgentSession,
     model: string,
     thinkingLevel: AgentThinkingLevel,
+    tools: readonly AgentCustomTool[],
     sink: AgentEventSink,
   ) {
     this.root = root;
@@ -69,6 +72,7 @@ export class AgentService {
     this.activeName = initial;
     this.activeModel = model;
     this.activeThinking = thinkingLevel;
+    this.tools = tools;
     this.session = session;
     this.sink = sink;
   }
@@ -78,6 +82,7 @@ export class AgentService {
     providers: AgentProviders,
     initial: string,
     sink: AgentEventSink,
+    tools: readonly AgentCustomTool[] = [],
   ): Promise<AgentService> {
     const provider = providers[initial];
     if (provider === undefined) {
@@ -86,6 +91,7 @@ export class AgentService {
     const { session, model, thinkingLevel } = await provider.createSession({
       root,
       requestPermission: autoAllow,
+      tools,
     });
     const service = new AgentService(
       root,
@@ -94,6 +100,7 @@ export class AgentService {
       session,
       model,
       thinkingLevel,
+      tools,
       sink,
     );
     session.onEvent(sink); // forward everything, verbatim
@@ -224,6 +231,7 @@ export class AgentService {
         root: this.root,
         model,
         requestPermission: autoAllow,
+        tools: this.tools,
       });
       next = created.session;
       nextModel = created.model;

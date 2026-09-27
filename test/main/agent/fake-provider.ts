@@ -1,4 +1,5 @@
 import type {
+  AgentCustomTool,
   AgentProvider,
   AgentSession,
 } from "../../../src/main/agent/provider.js";
@@ -10,9 +11,9 @@ import type {
 /**
  * In-memory double for the provider seam. Implements exactly the seam
  * contract and nothing more: records what the service does (roots,
- * models, prompts, aborts, disposes, thinking levels) and lets tests
- * feed events back through the subscription. The moment it grows an
- * `if` that isn't in the seam's doc comment, it's drifting.
+ * models, tools, prompts, aborts, disposes, thinking levels) and lets
+ * tests feed events back through the subscription. The moment it
+ * grows an `if` that isn't in the seam's doc comment, it's drifting.
  */
 export function createFakeProvider(
   options: { rejectModel?: string; noThinkingControl?: boolean } = {},
@@ -20,6 +21,9 @@ export function createFakeProvider(
   provider: AgentProvider;
   createdRoots: string[];
   requestedModels: Array<string | undefined>;
+  /** The custom tools each createSession received, one entry per
+   * session the service has created (the swap path re-sends them). */
+  receivedTools: Array<readonly AgentCustomTool[]>;
   sentPrompts: string[];
   /** Every setThinkingLevel call, across all sessions the service has
    * created (the reconcile path calls on the fresh one). */
@@ -30,6 +34,7 @@ export function createFakeProvider(
 } {
   const createdRoots: string[] = [];
   const requestedModels: Array<string | undefined> = [];
+  const receivedTools: Array<readonly AgentCustomTool[]> = [];
   const sentPrompts: string[] = [];
   const setLevels: AgentThinkingLevel[] = [];
   let aborts = 0;
@@ -60,12 +65,13 @@ export function createFakeProvider(
   };
 
   const provider: AgentProvider = {
-    async createSession({ root, model }) {
+    async createSession({ root, model, tools }) {
       if (model !== undefined && model === options.rejectModel) {
         throw new Error(`model unavailable: ${model}`);
       }
       createdRoots.push(root);
       requestedModels.push(model);
+      receivedTools.push(tools ?? []);
       return { session, model: model ?? "fake-default", thinkingLevel: "off" };
     },
 
@@ -86,6 +92,7 @@ export function createFakeProvider(
     provider,
     createdRoots,
     requestedModels,
+    receivedTools,
     sentPrompts,
     setLevels,
     get aborts() {

@@ -31,6 +31,12 @@ import {
   TERMINAL_ABORT_CHANNEL,
   TERMINAL_EVENTS_CHANNEL,
   TERMINAL_RUN_CHANNEL,
+  VDOC_CHANGED_CHANNEL,
+  VDOC_CREATE_CHANNEL,
+  VDOC_DELETE_CHANNEL,
+  VDOC_LIST_CHANNEL,
+  VDOC_READ_CHANNEL,
+  VDOC_UPDATE_CHANNEL,
 } from "./channels.js";
 import type {
   ListChildrenRequest,
@@ -53,6 +59,17 @@ import type {
   TerminalRunRequest,
   TerminalRunResult,
 } from "./terminal.js";
+import type {
+  VDocChange,
+  VDocCreateRequest,
+  VDocCreateResult,
+  VDocDeleteResult,
+  VDocListResult,
+  VDocName,
+  VDocReadResult,
+  VDocUpdateRequest,
+  VDocUpdateResult,
+} from "./vdoc.js";
 
 /**
  * The transport seam. The real adapter is preload's ipcRenderer bridge
@@ -118,6 +135,26 @@ export interface OttercodeClient {
     /** Replace the session with a fresh one (same provider + model).
      * The response — not events — is the reset signal for consumers. */
     newChat(): Promise<AgentReconfigResult>;
+  };
+  vdoc: {
+    /** All docs with their current versions. Cannot fail. */
+    list(): Promise<VDocListResult>;
+    /** Create a doc with content from birth (no empty genesis). */
+    create(name: VDocName, content: string): Promise<VDocCreateResult>;
+    /** One doc's whole content and the version a later update must
+     * name. */
+    read(name: VDocName): Promise<VDocReadResult>;
+    /** Replace content; expectedVersion guards against clobbering. */
+    update(
+      name: VDocName,
+      content: string,
+      expectedVersion: number,
+    ): Promise<VDocUpdateResult>;
+    /** Delete a doc (user-initiated; the agent toolset has no
+     * delete). */
+    delete(name: VDocName): Promise<VDocDeleteResult>;
+    /** Subscribe to the change stream. Returns unsubscribe. */
+    onChange(handler: (change: VDocChange) => void): () => void;
   };
 }
 
@@ -232,6 +269,38 @@ export function createClient(transport: ClientTransport): OttercodeClient {
           AGENT_NEW_CHAT_CHANNEL,
           {},
         ) as Promise<AgentReconfigResult>;
+      },
+    },
+    vdoc: {
+      list() {
+        return invoke(VDOC_LIST_CHANNEL, {}) as Promise<VDocListResult>;
+      },
+      create(name: VDocName, content: string) {
+        const request: VDocCreateRequest = { name, content };
+        return invoke(
+          VDOC_CREATE_CHANNEL,
+          request,
+        ) as Promise<VDocCreateResult>;
+      },
+      read(name: VDocName) {
+        return invoke(VDOC_READ_CHANNEL, { name }) as Promise<VDocReadResult>;
+      },
+      update(name: VDocName, content: string, expectedVersion: number) {
+        const request: VDocUpdateRequest = { name, content, expectedVersion };
+        return invoke(
+          VDOC_UPDATE_CHANNEL,
+          request,
+        ) as Promise<VDocUpdateResult>;
+      },
+      delete(name: VDocName) {
+        return invoke(VDOC_DELETE_CHANNEL, {
+          name,
+        }) as Promise<VDocDeleteResult>;
+      },
+      onChange(handler) {
+        return subscribe(VDOC_CHANGED_CHANNEL, (payload) =>
+          handler(payload as VDocChange),
+        );
       },
     },
   };

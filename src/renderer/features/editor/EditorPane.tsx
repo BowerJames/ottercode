@@ -8,6 +8,7 @@ import {
 } from "@codemirror/view";
 import { useEffect, useRef, useState } from "react";
 import type { FsErrorCode } from "../../../shared/ipc/fs";
+import type { VDocErrorCode } from "../../../shared/ipc/vdoc";
 import { languageIdOf } from "../../../shared/lang/languages";
 import { Markdown } from "../../components/Markdown";
 import { useFileTree } from "../file-tree/use-file-tree";
@@ -40,6 +41,17 @@ const ERROR_MESSAGES: Record<FsErrorCode, string> = {
   unknown: "Couldn't open this file.",
 };
 
+/** The vdoc error surface, same posture as the file one: distinct
+ *  messages per code, presentation only. `conflict` never reaches it
+ * (it routes to the banner) — the arm stays total anyway. */
+const VDOC_ERROR_MESSAGES: Record<VDocErrorCode, string> = {
+  "not-found": "This design doc is gone — it may have been deleted.",
+  exists: "A design doc with that name already exists.",
+  conflict: "The doc changed while saving — re-read and merge.",
+  "invalid-name": "Invalid design-doc name.",
+  "too-large": "This design doc is too large to save.",
+};
+
 /**
  * The right-hand pane: opens the tree's selected file into an in-memory
  * working copy and lets the user edit it. Edits never touch disk —
@@ -65,15 +77,22 @@ export function EditorPane() {
   const virtualDoc = useEditor((s) =>
     s.activePath === null ? undefined : s.virtualDocs[s.activePath],
   );
+  const vdocBuffer = useEditor((s) =>
+    s.activePath === null ? undefined : s.vdocBuffers[s.activePath],
+  );
   const openError = useEditor((s) => s.openError);
+  const vdocError = useEditor((s) => s.vdocError);
   const reset = useEditor((s) => s.reset);
+  const saveVdoc = useEditor((s) => s.saveVdoc);
+  const reloadVdoc = useEditor((s) => s.reloadVdoc);
 
   const showError =
     openError !== null && openError.path === (selected?.path ?? null);
   const dirty =
     (workingCopy !== undefined &&
       workingCopy.content !== workingCopy.original) ||
-    (virtualDoc !== undefined && virtualDoc.content !== virtualDoc.original);
+    (virtualDoc !== undefined && virtualDoc.content !== virtualDoc.original) ||
+    (vdocBuffer !== undefined && vdocBuffer.content !== vdocBuffer.original);
 
   // Preview is view state, not document state — the pane owns it, and
   // it resets per document: opening anything always lands in source
@@ -90,18 +109,22 @@ export function EditorPane() {
     activePath !== null &&
     (workingCopy !== undefined
       ? isMarkdownPath(activePath)
-      : (virtualDoc?.draft ?? false));
+      : vdocBuffer !== undefined || (virtualDoc?.draft ?? false));
   const showPreview = preview && previewable;
 
   return (
     <section className="editor-pane">
-      {(workingCopy !== undefined || virtualDoc !== undefined) &&
+      {(workingCopy !== undefined ||
+        virtualDoc !== undefined ||
+        vdocBuffer !== undefined) &&
         activePath !== null && (
           <div className="editor-header">
             <span className="editor-file-name">
               {virtualDoc !== undefined
                 ? virtualDoc.title
-                : basename(activePath)}
+                : vdocBuffer !== undefined
+                  ? vdocBuffer.name
+                  : basename(activePath)}
             </span>
             {virtualDoc !== undefined && (
               <span
@@ -114,6 +137,24 @@ export function EditorPane() {
               >
                 {virtualDoc.draft ? "draft" : "read-only"}
               </span>
+            )}
+            {vdocBuffer !== undefined && (
+              <span
+                className="editor-virtual-tag"
+                title="a virtual design doc — shared with the agent, live in memory, never on disk"
+              >
+                design
+              </span>
+            )}
+            {vdocBuffer !== undefined && dirty && (
+              <button
+                type="button"
+                className="editor-save"
+                title="save to the shared design doc (⌘S)"
+                onClick={() => void saveVdoc(activePath)}
+              >
+                save
+              </button>
             )}
             {dirty && (
               <span
@@ -156,6 +197,38 @@ export function EditorPane() {
             )}
           </div>
         )}
+      {(workingCopy !== undefined ||
+        virtualDoc !== undefined ||
+        vdocBuffer !== undefined) &&
+        activePath !== null &&
+        vdocBuffer?.conflict === true && (
+          <div className="editor-conflict">
+            <span className="editor-conflict-text">
+              the agent updated this doc while you had unsaved edits
+            </span>
+            <button
+              type="button"
+              className="editor-conflict-action"
+              title="discard your edits and adopt the agent's version"
+              onClick={() => void reloadVdoc(activePath)}
+            >
+              re-read
+            </button>
+            <button
+              type="button"
+              className="editor-conflict-action"
+              title="save your version over the agent's"
+              onClick={() => void saveVdoc(activePath, { force: true })}
+            >
+              overwrite
+            </button>
+          </div>
+        )}
+      {vdocError !== null && vdocBuffer === undefined && (
+        <div className="editor-error">
+          {VDOC_ERROR_MESSAGES[vdocError.code]}
+        </div>
+      )}
       {showError && openError !== null && (
         <div className="editor-error">{ERROR_MESSAGES[openError.code]}</div>
       )}
@@ -201,6 +274,27 @@ export function EditorPane() {
             readonly={!virtualDoc.draft}
           />
         )
+      ) : activePath !== null && vdocBuffer !== undefined ? (
+        // Design docs: editable markdown, previewable like any .md,
+        // with the one save flow in the editor (⌘S / the save button —
+        // the authority is main's store, version-guarded). Like drafts:
+        // no selection menu (synthetic keys never cross IPC). Language
+        // intel self-disables because vdoc keys classify to null —
+        // NOTE: that holds only while .md stays out of the shared
+        // classifier; if markdown ever joins it, this branch must
+        // explicitly exclude intel so vdoc keys never reach lang IPC.
+        showPreview ? (
+          <div className="markdown-preview">
+            <Markdown text={vdocBuffer.content} />
+          </div>
+        ) : (
+          <EditorDocument
+            key={`${activePath}:${vdocBuffer.revision}`}
+            path={activePath}
+            initial={vdocBuffer.content}
+            onSave={() => void saveVdoc(activePath)}
+          />
+        )
       ) : (
         <div className="editor-empty">Select a file to view and edit it</div>
       )}
@@ -223,6 +317,7 @@ function EditorDocument({
   initial,
   readonly = false,
   selectionMenu = false,
+  onSave,
 }: {
   path: string;
   initial: string;
@@ -232,6 +327,9 @@ function EditorDocument({
    * contract, and a synthetic key must never cross — so editable
    * drafts stay menu-less by construction. */
   selectionMenu?: boolean;
+  /** Bind Mod-s (vdoc buffers: save to the authority). Absent means
+   * no save binding — disk files have no save by design. */
+  onSave?: () => void;
 }) {
   const hostRef = useRef<HTMLDivElement | null>(null);
   const viewRef = useRef<CodeMirrorView | null>(null);
@@ -289,6 +387,19 @@ function EditorDocument({
         ...languageFor(path),
         history(),
         keymap.of([...defaultKeymap, ...historyKeymap]),
+        ...(onSave !== undefined
+          ? [
+              keymap.of([
+                {
+                  key: "Mod-s",
+                  run: () => {
+                    onSave();
+                    return true; // handled — the browser's save dialog stays down
+                  },
+                },
+              ]),
+            ]
+          : []),
         // Language intelligence — working copies of classified
         // languages only: the extensions self-gate on the shared
         // classifier, and virtual keys classify to null by construction.
@@ -324,7 +435,7 @@ function EditorDocument({
     };
     // languageClassified derives from path (already a dep): listing it
     // satisfies the exhaustive-deps rule without adding rebuilds.
-  }, [edit, initialDoc, path, readonly, languageClassified]);
+  }, [edit, initialDoc, path, readonly, languageClassified, onSave]);
 
   // The definition jump, consumed once: the effect fires on reveal
   // requests (including the mount that follows a cross-file open),

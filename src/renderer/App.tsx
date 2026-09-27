@@ -6,6 +6,7 @@ import { EditorPane } from "./features/editor/EditorPane";
 import { FileTree } from "./features/file-tree/FileTree";
 import { GitBar } from "./features/git/GitBar";
 import { TerminalDock } from "./features/terminal/TerminalDock";
+import { VDocList } from "./features/vdocs/VDocList";
 
 /** The shell: three panes. The left pane is a column — the tree fills
  * it, the git bar docks to its bottom. The center column stacks
@@ -32,6 +33,7 @@ export function App() {
     <div className="app-shell">
       <aside className="sidebar" style={{ width: sidebar.size }}>
         <FileTree />
+        <VDocList />
         <GitBar />
       </aside>
       <Splitter

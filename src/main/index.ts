@@ -4,6 +4,7 @@ import { app, BrowserWindow } from "electron";
 import {
   AGENT_EVENTS_CHANNEL,
   TERMINAL_EVENTS_CHANNEL,
+  VDOC_CHANGED_CHANNEL,
 } from "../shared/ipc/channels.js";
 import { AgentService } from "./agent/agent-service.js";
 import { claudeProvider } from "./agent/providers/claude.js";
@@ -13,12 +14,15 @@ import { registerFsIpc } from "./ipc/register-fs-ipc.js";
 import { registerGitIpc } from "./ipc/register-git-ipc.js";
 import { registerLangIpc } from "./ipc/register-lang-ipc.js";
 import { registerTerminalIpc } from "./ipc/register-terminal-ipc.js";
+import { registerVdocIpc } from "./ipc/register-vdoc-ipc.js";
 import { LanguageService } from "./language/language-service.js";
 import { createStdioConnection } from "./language/real-lsp-connection.js";
 import { createServerResolver } from "./language/server-resolver.js";
 import { createLspEngine } from "./language/stdio-lsp-engine.js";
 import { realTerminalSpawner } from "./terminal/real-terminal-spawner.js";
 import { TerminalService } from "./terminal/terminal-service.js";
+import { VDocStore } from "./vdocs/vdoc-store.js";
+import { vdocTools } from "./vdocs/vdoc-tools.js";
 import { readGitStatus } from "./workspace/git-status.js";
 import { realGitRunner } from "./workspace/real-git-runner.js";
 import { realWorkspaceFs } from "./workspace/real-workspace-fs.js";
@@ -78,6 +82,19 @@ app.whenReady().then(async () => {
 
   const win = createWindow();
 
+  // Virtual design docs: an in-memory authority the user and the
+  // agent write together, never persisted to disk — its state dies
+  // with the process, which is the feature. Wired beside the window
+  // because the change stream pushes there; the store itself
+  // outlives renderer reloads and agent session swaps. The agent
+  // reaches the same store through its custom tools — one authority,
+  // two writers.
+  const vdocs = new VDocStore();
+  registerVdocIpc(vdocs);
+  vdocs.onChange((change) => {
+    win.webContents.send(VDOC_CHANGED_CHANNEL, change);
+  });
+
   // The terminal works regardless of agent auth — one command at a
   // time in the workspace root, events pushed to the renderer.
   const terminal = new TerminalService(
@@ -100,6 +117,7 @@ app.whenReady().then(async () => {
       (event) => {
         win.webContents.send(AGENT_EVENTS_CHANNEL, event);
       },
+      vdocTools(vdocs),
     );
     registerAgentIpc(agent);
   } catch (error) {

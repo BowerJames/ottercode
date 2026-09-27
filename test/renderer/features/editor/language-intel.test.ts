@@ -16,7 +16,7 @@ import { createFakeTransport } from "../../fake-transport";
 function makeIntel() {
   const harness = createFakeTransport();
   const client = createClient(harness.transport);
-  const editor = createEditorStore(client.fs);
+  const editor = createEditorStore(client.fs, client.vdoc);
   const intel = createLanguageIntel({ lang: client.lang, editor });
   return { harness, editor, intel };
 }

@@ -1,3 +1,4 @@
+import type { TSchema } from "typebox";
 import type {
   AgentEvent,
   AgentModelInfo,
@@ -77,6 +78,12 @@ export type AgentSessionOptions = {
   requestPermission?: (
     request: AgentPermissionRequest,
   ) => Promise<AgentPermissionDecision>;
+  /** Model-callable tools to register on the session (see
+   *  AgentCustomTool). The service passes the same set to every
+   *  session it creates, so replacements keep them. Adapters omit
+   *  their native tool machinery entirely when the set is empty —
+   *  no handshakes for nothing. */
+  tools?: readonly AgentCustomTool[];
 };
 
 /** A created session plus the model actually in effect. */
@@ -87,6 +94,47 @@ export type CreatedAgentSession = {
   /** The thinking level actually in effect (resolved default when
    * none requested — the adapter's default, not a contract one). */
   thinkingLevel: AgentThinkingLevel;
+};
+
+/**
+ * A model-callable tool, defined once against the module it serves
+ * (e.g. vdoc-tools) and satisfied by every adapter: pi (customTools),
+ * Claude Code (an in-process MCP server), and the test fake — which
+ * is what makes this a real seam from day one.
+ *
+ * Contract facts every adapter honors:
+ * - `name` is the CONTRACT name — the one events carry and callers
+ *   see. Providers with native naming (Claude's mcp__<server>__x)
+ *   map to it going in and restore it coming out.
+ * - `description` is model-facing: it IS the interface the model
+ *   learns. It must teach what the tool is for and its key
+ *   constraints; the model never sees the implementation.
+ * - `inputSchema` is a TypeBox schema (TypeBox emits JSON Schema, so
+ *   one definition serves every adapter; the Claude fence converts
+ *   to its Zod raw shapes). typebox is pinned to pi's exact version
+ *   in package.json so one copy serves both.
+ * - Errors are values, never throws: adapters signal failure per
+ *   their native convention (pi: a thrown Error becomes its failed
+ *   tool result; Claude: MCP's isError flag), with `output` as the
+ *   model-facing recovery text.
+ */
+export type AgentCustomTool = {
+  name: string;
+  description: string;
+  inputSchema: TSchema;
+  /** One-liner for system-prompt tool listings, where the adapter
+   *   supports one (pi's promptSnippet). */
+  promptSnippet?: string;
+  execute(input: unknown): Promise<AgentCustomToolResult>;
+};
+
+export type AgentCustomToolResult = {
+  /** Text returned to the model — on failure, recovery prose
+   *  (what to do instead), not a bare code. */
+  output: string;
+  /** A failed call. The turn continues; the model reads `output` and
+   *  recovers — self-describing errors are the tool's job. */
+  isError?: boolean;
 };
 
 export type AgentProvider = {
